@@ -22,5 +22,4 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: ui/package-lock.json }
       - run: npm ci
-      - run: npx tsc --noEmit
-      - run: npm run build
+      - run: npm run build   # also type-checks
