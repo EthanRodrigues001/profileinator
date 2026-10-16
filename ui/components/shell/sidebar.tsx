@@ -1,4 +1,6 @@
 "use client";
+import { ArrowUpCircle, Loader2, RefreshCw } from "lucide-react";
+import { useUpdate } from "@/components/hq/update";
 import { ago, LANG_COLOR, type Repo } from "@/lib/hq";
 import { STAGE_LABEL, StatusIcon, stageState } from "@/components/kit/status-icon";
 import { KINDS, type TabKind } from "./nav";
@@ -38,6 +40,19 @@ const Heading = ({ children, right }: { children: React.ReactNode; right?: React
 );
 
 /** Left rail: workspace pages, resources, and the pinned projects with their live status. */
+function UpdateButton() {
+  const u = useUpdate();
+  const newer = !!u.info?.newer;
+  return (
+    <button onClick={() => (newer ? u.install() : u.check(true))} disabled={u.checking || u.installing}
+      title={newer ? `Update to ${u.info?.latest}` : "Check for updates"}
+      className={`ml-auto inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] transition ${newer ? "border-brand/40 bg-brand/15 text-foreground hover:bg-brand/25" : "border-border hover:bg-accent hover:text-foreground"}`}>
+      {u.checking || u.installing ? <Loader2 className="size-3 animate-spin" /> : newer ? <ArrowUpCircle className="size-3 text-brand" /> : <RefreshCw className="size-3" />}
+      {u.installing ? "Updating" : newer ? "Update" : "Check"}
+    </button>
+  );
+}
+
 export function Sidebar({ active, pinned, total, synced, onOpen }: Props) {
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-2.5 py-3">
@@ -74,6 +89,7 @@ export function Sidebar({ active, pinned, total, synced, onOpen }: Props) {
       <div className="mt-3 flex items-center gap-2 px-2.5 text-xs text-muted-foreground">
         <StatusIcon state={synced ? "done" : "backlog"} size={13} />
         {synced ? `Synced ${ago(new Date(synced * 1000).toISOString())}${ago(new Date(synced * 1000).toISOString()) === "today" ? "" : " ago"}` : "Not synced yet"}
+        <UpdateButton />
       </div>
     </aside>
   );
