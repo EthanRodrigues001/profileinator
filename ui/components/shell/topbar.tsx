@@ -43,7 +43,7 @@ export function Topbar({ workspace, page, repos, busy, onToggleSidebar, onOpenPr
         <PanelLeft className="size-4" />
       </button>
       <nav className="flex items-center gap-2 text-sm">
-        <span className="grid size-5 place-items-center rounded-md bg-gradient-to-br from-amber-300 to-orange-600 text-[10px] font-bold text-black">P</span>
+        <img src="/logo.png" alt="" className="size-5 rounded-md" />
         <span className="text-muted-foreground">Profileinator</span>
         <ChevronRight className="size-3 text-muted-foreground/50" />
         <span className="text-muted-foreground">{workspace}</span>

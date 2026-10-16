@@ -1,3 +1,5 @@
+<p align="center"><img src="ui/public/logo-512.png" width="120" alt="Profileinator logo"></p>
+
 # Profileinator
 
 One place that knows everything about you, for every AI chat and every job application.
