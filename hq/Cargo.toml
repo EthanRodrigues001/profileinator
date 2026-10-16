@@ -1,0 +1,23 @@
+[package]
+name = "hq"
+version = "0.1.0"
+edition = "2021"
+description = "Profile HQ: one local source of truth for a developer profile, exposed as CLI, MCP server and desktop UI"
+
+[dependencies]
+model2vec-rs = { version = "0.3", default-features = false, features = ["fancy-regex", "hf-hub"], optional = true }
+serde_json = "1"
+tiny_http = "0.12"
+ureq = "2"
+
+[features]
+default = ["semantic"]
+# Local semantic search (static embeddings). Build with --no-default-features for a smaller, lexical-only binary.
+semantic = ["dep:model2vec-rs"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

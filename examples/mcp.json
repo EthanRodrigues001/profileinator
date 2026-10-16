@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "hq": { "command": "/absolute/path/to/hq", "args": ["mcp"] }
+  }
+}

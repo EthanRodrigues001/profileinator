@@ -1,0 +1,14 @@
+target/
+node_modules/
+.next/
+ui/out/
+profile.json
+profile.index.json
+profile.lock
+*.tmp
+*.bak
+desktop/src-tauri/gen/
+.claude/settings.local.json
+ui/.agents/
+ui/.claude/
+ui/skills-lock.json

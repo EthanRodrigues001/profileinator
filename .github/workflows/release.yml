@@ -1,0 +1,39 @@
+name: release
+# Push a tag like v0.1.0 to publish one archive per platform: the hq binary, the dashboard (ui/), the agent skill and the README.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: windows-latest, name: windows-x64, exe: hq.exe }
+          - { os: macos-latest, name: macos-arm64, exe: hq }
+          - { os: ubuntu-latest, name: linux-x64, exe: hq }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: ui/package-lock.json }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci && npm run build
+        working-directory: ui
+      - run: cargo build --release --manifest-path hq/Cargo.toml
+      - name: Package
+        shell: bash
+        run: |
+          d=profileinator-${{ matrix.name }}
+          mkdir -p $d
+          cp hq/target/release/${{ matrix.exe }} $d/
+          cp -r ui/out $d/ui
+          cp -r skills $d/skills
+          cp README.md LICENSE $d/
+          if [ "${{ runner.os }}" = "Windows" ]; then 7z a $d.zip $d; else tar czf $d.tar.gz $d; fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            profileinator-*.zip
+            profileinator-*.tar.gz

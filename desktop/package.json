@@ -1,0 +1,6 @@
+{
+  "name": "profileinator-desktop",
+  "private": true,
+  "scripts": { "tauri": "tauri", "build": "tauri build --no-bundle" },
+  "devDependencies": { "@tauri-apps/cli": "^2" }
+}
