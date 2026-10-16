@@ -23,11 +23,17 @@ fn main() {
     let app = tauri::Builder::default()
         .setup(|app| {
             let exe = std::env::current_exe()?;
-            // target/release/profileinator.exe -> .../profileinator (the project root)
-            let home: PathBuf = exe.ancestors().nth(5).map(PathBuf::from).unwrap_or_default();
-            let child = Command::new(exe.with_file_name("hq.exe"))
+            let hq_name = if cfg!(windows) { "hq.exe" } else { "hq" };
+            // installed: hq and ui/ are bundled resources. Source checkout: hq sits beside this exe and ui/out is in the project root.
+            let res = app.path().resource_dir().ok();
+            let bundled = res.as_ref().map(|r| (r.join("bin").join(hq_name), r.join("ui"))).filter(|(h, u)| h.exists() && u.join("index.html").exists());
+            let (hq, ui): (PathBuf, PathBuf) = bundled.unwrap_or_else(|| {
+                let home: PathBuf = exe.ancestors().nth(5).map(PathBuf::from).unwrap_or_default();
+                (exe.with_file_name(hq_name), home.join("ui/out"))
+            });
+            let child = Command::new(hq)
                 .args(["ui", &PORT.to_string(), "--no-open"])
-                .env("HQ_UI", home.join("ui/out"))
+                .env("HQ_UI", ui)
                 .hide_console()
                 .spawn()
                 .ok();

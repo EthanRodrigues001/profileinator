@@ -12,3 +12,4 @@ desktop/src-tauri/gen/
 ui/.agents/
 ui/.claude/
 ui/skills-lock.json
+desktop/src-tauri/bin/
