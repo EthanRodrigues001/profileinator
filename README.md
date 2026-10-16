@@ -48,6 +48,10 @@ Requirements: nothing for the core. The [GitHub CLI](https://cli.github.com) (`g
 
 Build from source: see [CONTRIBUTING.md](CONTRIBUTING.md). A native window is optional: `cd desktop && npm i && npm run build`, then copy `hq` next to `src-tauri/target/release/profileinator`.
 
+## Updates
+
+The app checks GitHub for new releases and shows a banner; in the desktop app **Update & restart** downloads the signed update and installs it. Integrations → **Check for updates** checks on demand.
+
 ## First run
 
 The dashboard opens on a welcome screen with three steps:

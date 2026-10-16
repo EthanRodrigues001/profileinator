@@ -1,7 +1,8 @@
 // Native shell: starts the `hq` core next to this exe, waits for it, then opens it in a real window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::{net::TcpStream, path::PathBuf, process::{Child, Command}, sync::Mutex, time::Duration};
-use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_updater::UpdaterExt;
 
 const PORT: u16 = 4777;
 
@@ -19,8 +20,25 @@ impl HideConsole for Command {
     }
 }
 
+/// Download the newest signed release, verify its signature, install it and restart. Called by the dashboard's update banner.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<String, String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else { return Ok("already up to date".into()) };
+    let a = app.clone();
+    // the installer replaces files hq.exe is running from, so stop it as soon as the download is done
+    update.download_and_install(|_, _| {}, move || {
+        if let Some(c) = a.try_state::<Mutex<Option<Child>>>() {
+            if let Some(ch) = c.lock().unwrap().as_mut() { let _ = ch.kill(); }
+        }
+    }).await.map_err(|e| e.to_string())?;
+    app.restart()
+}
+
 fn main() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![install_update])
         .setup(|app| {
             let exe = std::env::current_exe()?;
             let hq_name = if cfg!(windows) { "hq.exe" } else { "hq" };

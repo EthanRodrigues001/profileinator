@@ -34,7 +34,7 @@ fn call(op: &str, a: &Value) -> R {
         r
     };
     // Network ops (gh, HTTP) must not hold the cross-process lock while they wait: they lock only for their final merge.
-    if matches!(op, "sync" | "check_links" | "commits" | "commits_all" | "scan_stack" | "github_connect" | "github_status" | "setup_agent") { go() } else { locked(go) }
+    if matches!(op, "sync" | "check_links" | "commits" | "commits_all" | "scan_stack" | "github_connect" | "github_status" | "setup_agent" | "update_check") { go() } else { locked(go) }
 }
 fn run(op: &str, a: &Value) -> R {
     match op {
@@ -136,6 +136,7 @@ fn run(op: &str, a: &Value) -> R {
         "set_positioning" => fill::set_positioning(a),
         "scan_stack" => fill::scan_stack(),
         "setup_agent" => { let (lines, ok) = setup_core(); Ok(json!({"connected": ok, "lines": lines, "mcp_url": "http://127.0.0.1:4777/mcp", "command": std::env::current_exe().unwrap_or_default().display().to_string()})) }
+        "update_check" => update_check(),
         "github_status" => github::status(),
         "github_connect" => github::connect(),
         "onboarding" => Ok(json!(fill::onboarding())),
@@ -400,6 +401,22 @@ fn update_project(a: &Value) -> R {
     }
     save("projects", &p)?;
     Ok(json!(format!("{name} updated: {}", changed.join(", "))))
+}
+
+const RELEASES: &str = "https://api.github.com/repos/EthanRodrigues001/profileinator/releases/latest";
+
+fn version_parts(v: &str) -> Vec<u64> {
+    v.trim_start_matches('v').split(['.', '-']).map_while(|x| x.parse().ok()).collect()
+}
+
+/// Is a newer release published? Used by the dashboard's update banner (and the desktop app's installer).
+fn update_check() -> R {
+    let current = env!("CARGO_PKG_VERSION");
+    let ag = ureq::AgentBuilder::new().timeout(Duration::from_secs(10)).user_agent("hq-update-check").build();
+    let rel: Value = ag.get(RELEASES).call().map_err(|e| format!("could not reach GitHub: {e}"))?.into_json().map_err(|e| e.to_string())?;
+    let latest = s(&rel, "tag_name").trim_start_matches('v').to_string();
+    Ok(json!({"current": current, "latest": latest, "newer": version_parts(&latest) > version_parts(current),
+        "url": rel["html_url"], "notes": rel["body"], "published": rel["published_at"]}))
 }
 
 fn repos(a: &Value) -> R {
@@ -798,6 +815,7 @@ fn tools() -> Value {
         tool("set_positioning", "Set the target role (direction), headline and summary variants ({label,text}), things to avoid, and the honest skill order. Only the keys you pass change.",
             json!({"direction": str_, "headlines": {"type": "array", "items": {"type": "object"}}, "summaries": {"type": "array", "items": {"type": "object"}}, "avoid": {"type": "array", "items": str_}, "skill_order": {"type": "array", "items": str_}}), &[]),
         tool("scan_stack", "Derive the evidence-based tech stack from the user's own GitHub repos (package.json, requirements.txt, Cargo.toml plus language bytes): which technologies, how many projects, first and last use, and a tier (Core, Regular, Working, Tried, Past). Run after sync. Undoable.", json!({}), &[]),
+        tool("update_check", "Is a newer Profileinator release published? Returns current and latest version and the release notes.", json!({}), &[]),
         tool("github_status", "Is the GitHub CLI installed and signed in, as whom, and how many repos are stored.", json!({}), &[]),
         tool("github_connect", "Import from GitHub: if gh is signed in, fills name/bio/link, syncs repos and scans the tech stack; if not, starts browser sign-in and returns a one-time code.", json!({}), &[]),
         tool("ask", "Answer a question about the person from the knowledge graph. Hybrid retrieval: keyword + synonyms + local semantic embeddings, fused, then widened along graph edges (e.g. backend experience, anything with Rust, what did the ML Head role involve). Prefer this over search for questions; returns matches with ids plus connected nodes.",

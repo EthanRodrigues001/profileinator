@@ -30,7 +30,20 @@
     "shortDescription": "One memory of you for every AI agent",
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "./windows-hooks.nsh"
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJENDU1OTRFMzM2MTRDRTYKUldUbVRHRXpUbGxGTFcyN3pFMlNLSU9GT2lFMk5INVV4M3cvV0diS2lvY09kRXl1ME0wRE1tOGYK",
+      "endpoints": [
+        "https://github.com/EthanRodrigues001/profileinator/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

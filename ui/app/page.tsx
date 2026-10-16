@@ -7,6 +7,7 @@ import { Commits } from "@/components/hq/commits";
 import { GraphView } from "@/components/hq/graph";
 import { Home } from "@/components/hq/home";
 import { Onboarding } from "@/components/hq/onboarding";
+import { UpdateBanner } from "@/components/hq/update";
 import { Profile } from "@/components/hq/profile";
 import { ProjectsTable } from "@/components/hq/projects-table";
 import { Project } from "@/components/hq/project";
@@ -81,6 +82,7 @@ export default function App() {
         onOpenProject={(n) => open("project", n)}
         onSync={() => run("sync", "GitHub sync")}
       />
+      <UpdateBanner />
       <div className="flex min-h-0 flex-1">
         {rail && data && <Sidebar active={active} pinned={data.repos.filter((r) => r.pinned)} total={data.repos.length} synced={data.synced} onOpen={open} />}
         <main className="flex min-w-0 flex-1 flex-col">

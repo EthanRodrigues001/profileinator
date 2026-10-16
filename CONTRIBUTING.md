@@ -23,3 +23,9 @@ HQ_DATA=/tmp/hq-dev ./hq/target/release/hq init
 - **No personal data in the repo.** Examples and tests use made-up people.
 - **Charts** use the Evil Charts components in `ui/components/evilcharts`; tables use `ui/components/kit/data-table.tsx`.
 - Run `npx tsc --noEmit` in `ui/` and `cargo build` before opening a pull request.
+
+## Releases and auto-update
+
+Pushing a tag such as `v0.2.0` runs `.github/workflows/release.yml`: it stamps the tag into every manifest (`scripts/set-version.mjs`), builds the installers, and publishes `latest.json` with signatures. Installed desktop apps check that file and show an "Update & restart" banner; the browser and CLI builds show a "Download" link instead.
+
+Updates are verified with a minisign key pair. The public key is in `desktop/src-tauri/tauri.conf.json`; the private key must be stored as the repository secret `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if it has a password). Forks need their own pair: `npx tauri signer generate -w ~/.tauri/profileinator.key`, then replace `pubkey` and the update endpoint. Keep the private key safe: without it nobody can receive updates.

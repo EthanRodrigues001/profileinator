@@ -1,12 +1,22 @@
 name: release
-# Push a tag like v0.1.0 to publish one archive per platform: the hq binary, the dashboard (ui/), the agent skill and the README.
+# Push a tag like v0.2.0 to publish: the native installers (Windows setup exe, macOS dmg, Linux AppImage/deb) with signed
+# auto-update files (latest.json), plus plain archives (hq + dashboard + skill) for the install scripts.
+# Needs the repository secret TAURI_SIGNING_PRIVATE_KEY (see CONTRIBUTING.md).
 on:
   push:
     tags: ["v*"]
 permissions:
   contents: write
 jobs:
-  build:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+  archives:
+    needs: create
     strategy:
       matrix:
         include:
@@ -16,6 +26,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Version from tag
+        shell: bash
+        run: node scripts/set-version.mjs "${GITHUB_REF_NAME#v}"
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: ui/package-lock.json }
       - uses: dtolnay/rust-toolchain@stable
@@ -39,13 +52,17 @@ jobs:
             profileinator-*.tar.gz
 
   installer:
-    # Native installers: Windows setup .exe, macOS .dmg, Linux .AppImage/.deb. hq and the dashboard are bundled inside.
+    # hq and the dashboard are bundled inside; tauri-action also uploads latest.json + signatures for the in-app updater.
+    needs: create
     strategy:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Version from tag
+        shell: bash
+        run: node scripts/set-version.mjs "${GITHUB_REF_NAME#v}"
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: ui/package-lock.json }
       - uses: dtolnay/rust-toolchain@stable
@@ -59,14 +76,18 @@ jobs:
         shell: bash
         run: |
           mkdir -p desktop/src-tauri/bin
-          cp hq/target/release/hq* desktop/src-tauri/bin/ 2>/dev/null || true
-          rm -f desktop/src-tauri/bin/*.d desktop/src-tauri/bin/*.pdb
-      - run: npm ci && npx tauri build
+          cp hq/target/release/hq hq/target/release/hq.exe desktop/src-tauri/bin/ 2>/dev/null || true
+      - run: npm ci
         working-directory: desktop
-      - uses: softprops/action-gh-release@v2
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          files: |
-            desktop/src-tauri/target/release/bundle/nsis/*.exe
-            desktop/src-tauri/target/release/bundle/dmg/*.dmg
-            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
-            desktop/src-tauri/target/release/bundle/deb/*.deb
+          projectPath: desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: Profileinator ${{ github.ref_name }}
+          releaseDraft: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true

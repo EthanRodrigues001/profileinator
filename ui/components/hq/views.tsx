@@ -1,5 +1,6 @@
 "use client";
 import { PromptList } from "./onboarding";
+import { UpdateCard } from "./update";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Copy, ExternalLink, Lock, Star } from "lucide-react";
 import { toast } from "sonner";
@@ -109,10 +110,13 @@ export function Integrations() {
           { key: "status", header: "Status", cell: (i) => <StatusChip state={i.status === "connected" || i.status === "ready" ? "done" : i.status === "planned" ? "backlog" : "progress"}>{i.status}</StatusChip> },
           { key: "note", header: "What it does", className: "w-full max-w-0", cell: (i) => <span className="block truncate text-muted-foreground">{i.note}</span> },
         ]} />
-      <div className="px-4 pb-8 pt-6">
+      <div className="space-y-6 px-4 pb-8 pt-6">
+        <UpdateCard />
+        <div>
         <h3 className="mb-1 text-sm font-medium">Prompts for your agent</h3>
         <p className="mb-3 text-xs text-muted-foreground">Paste into any agent connected to hq. Whatever it stores is indexed into the graph immediately.</p>
         <PromptList />
+        </div>
       </div>
     </div>
   );

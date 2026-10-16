@@ -1,1 +1,14 @@
-{ "identifier": "default", "windows": ["main"], "permissions": ["core:default"] }
+{
+  "identifier": "default",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:4777/*"
+    ]
+  },
+  "permissions": [
+    "core:default"
+  ]
+}
