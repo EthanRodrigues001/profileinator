@@ -11,8 +11,8 @@
 
 <p align="center">
   <a href="https://github.com/EthanRodrigues001/profileinator/releases/latest"><img alt="Latest release" src="https://shieldcn.dev/github/release/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20" /></a>
-  <a href="https://github.com/EthanRodrigues001/profileinator/actions/workflows/ci.yml"><img alt="CI status" src="https://shieldcn.dev/github/ci/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20&workflow=ci" /></a>
-  <a href="https://github.com/EthanRodrigues001/profileinator/releases"><img alt="Downloads" src="https://shieldcn.dev/github/dt/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/actions/workflows/ci.yml"><img alt="CI status" src="https://shieldcn.dev/github/ci/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20&workflow=ci.yml" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/commits/main"><img alt="Last commit" src="https://shieldcn.dev/github/last-commit/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20" /></a>
   <a href="LICENSE"><img alt="MIT license" src="https://shieldcn.dev/github/license/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20" /></a>
   <a href="https://github.com/EthanRodrigues001/profileinator/stargazers"><img alt="GitHub stars" src="https://shieldcn.dev/github/stars/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20" /></a>
 </p>
