@@ -1,12 +1,5 @@
 <p align="center">
-  <img src="ui/public/logo-512.png" width="112" alt="Profileinator logo" />
-</p>
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/header/graph.svg?title=Profileinator&subtitle=One+memory+of+you+for+every+AI+agent&mode=dark&align=center" />
-    <img alt="Profileinator: one memory of you for every AI agent" src="https://shieldcn.dev/header/graph.svg?title=Profileinator&subtitle=One+memory+of+you+for+every+AI+agent&mode=light&align=center" />
-  </picture>
+  <img src="docs/banner.webp" alt="Introducing Profile-inator" width="100%" />
 </p>
 
 <p align="center">
@@ -33,6 +26,24 @@
 </p>
 
 ---
+
+<p align="center">
+  <img src="docs/screenshots/home.webp" alt="Home: you at the centre, your profile areas orbiting with live status" width="100%" />
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/projects.webp" alt="Projects table" /><br/><sub><b>Projects.</b> Every repo plus your own work, grouped, with resume readiness at a glance.</sub></td>
+    <td width="50%"><img src="docs/screenshots/project.webp" alt="Project page" /><br/><sub><b>Project page.</b> Release, CI, issues, commits, stack and what it needs before it goes on a resume.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/commits.webp" alt="Commits" /><br/><sub><b>Commits.</b> Activity grid, most active repos and a branch graph across everything you built.</sub></td>
+    <td width="50%"><img src="docs/screenshots/links.webp" alt="Links" /><br/><sub><b>Links.</b> Every profile and project URL with live status, speed and check history.</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/integrations.webp" alt="Integrations" /><br/><sub><b>Integrations.</b> GitHub connection, MCP status and updates in one place.</sub></td>
+  </tr>
+</table>
 
 ## Why
 
