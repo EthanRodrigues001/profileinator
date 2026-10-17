@@ -33,6 +33,10 @@
 
 <table>
   <tr>
+    <td width="50%"><img src="docs/screenshots/profile.webp" alt="Profile" /><br/><sub><b>Profile.</b> Identity, positioning, experience and education in one place, with a completeness checklist beside it.</sub></td>
+    <td width="50%"><img src="docs/screenshots/resume.webp" alt="Resume" /><br/><sub><b>Resume.</b> Every version stored, shown as a PDF with working links, plus suggestions and job match.</sub></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/screenshots/projects.webp" alt="Projects table" /><br/><sub><b>Projects.</b> Every repo plus your own work, grouped, with resume readiness at a glance.</sub></td>
     <td width="50%"><img src="docs/screenshots/project.webp" alt="Project page" /><br/><sub><b>Project page.</b> Release, CI, issues, commits, stack and what it needs before it goes on a resume.</sub></td>
   </tr>
@@ -41,7 +45,8 @@
     <td width="50%"><img src="docs/screenshots/links.webp" alt="Links" /><br/><sub><b>Links.</b> Every profile and project URL with live status, speed and check history.</sub></td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/screenshots/integrations.webp" alt="Integrations" /><br/><sub><b>Integrations.</b> GitHub connection, MCP status and updates in one place.</sub></td>
+    <td width="50%"><img src="docs/screenshots/context.webp" alt="Context" /><br/><sub><b>Context.</b> The facts and application answers every agent starts from, editable in place.</sub></td>
+    <td width="50%"><img src="docs/screenshots/integrations.webp" alt="Integrations" /><br/><sub><b>Integrations.</b> GitHub connection, MCP status and updates in one place.</sub></td>
   </tr>
 </table>
 
