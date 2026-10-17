@@ -10,11 +10,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/EthanRodrigues001/profileinator/releases/latest"><img alt="Latest release" src="https://shieldcn.dev/github/release/EthanRodrigues001/profileinator.svg?variant=secondary" /></a>
-  <a href="https://github.com/EthanRodrigues001/profileinator/actions/workflows/ci.yml"><img alt="CI status" src="https://shieldcn.dev/github/ci/EthanRodrigues001/profileinator.svg?variant=secondary&workflow=ci" /></a>
-  <a href="https://github.com/EthanRodrigues001/profileinator/releases"><img alt="Downloads" src="https://shieldcn.dev/github/dt/EthanRodrigues001/profileinator.svg?variant=secondary" /></a>
-  <a href="LICENSE"><img alt="MIT license" src="https://shieldcn.dev/github/license/EthanRodrigues001/profileinator.svg?variant=secondary" /></a>
-  <a href="https://github.com/EthanRodrigues001/profileinator/stargazers"><img alt="GitHub stars" src="https://shieldcn.dev/github/stars/EthanRodrigues001/profileinator.svg?variant=secondary" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/releases/latest"><img alt="Latest release" src="https://shieldcn.dev/github/release/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/actions/workflows/ci.yml"><img alt="CI status" src="https://shieldcn.dev/github/ci/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20&workflow=ci" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/releases"><img alt="Downloads" src="https://shieldcn.dev/github/dt/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20" /></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://shieldcn.dev/github/license/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/stargazers"><img alt="GitHub stars" src="https://shieldcn.dev/github/stars/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20" /></a>
 </p>
 
 <p align="center">
@@ -46,9 +46,9 @@ Every AI chat starts from zero. You paste your resume again, retype the same app
 ## Install
 
 <p>
-  <a href="https://github.com/EthanRodrigues001/profileinator/releases/latest"><img alt="Windows" src="https://shieldcn.dev/badge/Windows-setup.exe-0078d4.svg?logo=windows&variant=secondary" /></a>
-  <a href="https://github.com/EthanRodrigues001/profileinator/releases/latest"><img alt="macOS" src="https://shieldcn.dev/badge/macOS-dmg-999999.svg?logo=apple&variant=secondary" /></a>
-  <a href="https://github.com/EthanRodrigues001/profileinator/releases/latest"><img alt="Linux" src="https://shieldcn.dev/badge/Linux-AppImage%20%C2%B7%20deb%20%C2%B7%20rpm-fcc624.svg?logo=linux&variant=secondary" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/releases/latest"><img alt="Windows" src="https://shieldcn.dev/badge/Windows-setup.exe-0078d4.svg?logo=windows&variant=secondary&size=xs&height=20" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/releases/latest"><img alt="macOS" src="https://shieldcn.dev/badge/macOS-dmg-999999.svg?logo=apple&variant=secondary&size=xs&height=20" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/releases/latest"><img alt="Linux" src="https://shieldcn.dev/badge/Linux-AppImage%20%C2%B7%20deb%20%C2%B7%20rpm-fcc624.svg?logo=linux&variant=secondary&size=xs&height=20" /></a>
 </p>
 
 **Desktop app (recommended).** Download the installer for your system from [Releases](https://github.com/EthanRodrigues001/profileinator/releases/latest):
@@ -225,9 +225,9 @@ No telemetry, no accounts, no tokens stored. The only network calls are the ones
 ### Core (`hq/`, Rust)
 
 <p>
-  <img alt="Rust" src="https://shieldcn.dev/badge/Rust-2021-dea584.svg?logo=rust&variant=secondary" />
-  <img alt="Single binary" src="https://shieldcn.dev/badge/Single-binary-64748b.svg?variant=secondary" />
-  <img alt="MCP" src="https://shieldcn.dev/badge/MCP-stdio%20%2B%20HTTP-f59e0b.svg?logo=anthropic&variant=secondary" />
+  <img alt="Rust" src="https://shieldcn.dev/badge/Rust-2021-dea584.svg?logo=rust&variant=secondary&size=xs&height=20" />
+  <img alt="Single binary" src="https://shieldcn.dev/badge/Single-binary-64748b.svg?variant=secondary&size=xs&height=20" />
+  <img alt="MCP" src="https://shieldcn.dev/badge/MCP-stdio%20%2B%20HTTP-f59e0b.svg?logo=anthropic&variant=secondary&size=xs&height=20" />
 </p>
 
 About 3,400 lines in eight modules, with four dependencies and no async runtime.
@@ -257,11 +257,11 @@ Release profile: `opt-level = "s"`, LTO, one codegen unit, stripped, `panic = "a
 ### Dashboard (`ui/`, TypeScript)
 
 <p>
-  <img alt="Next.js" src="https://shieldcn.dev/badge/Next.js-16-000000.svg?logo=nextdotjs&variant=secondary" />
-  <img alt="React" src="https://shieldcn.dev/badge/React-19-61dafb.svg?logo=react&variant=secondary" />
-  <img alt="TypeScript" src="https://shieldcn.dev/badge/TypeScript-5-3178c6.svg?logo=typescript&variant=secondary" />
-  <img alt="Tailwind CSS" src="https://shieldcn.dev/badge/Tailwind-v4-06b6d4.svg?logo=tailwindcss&variant=secondary" />
-  <img alt="shadcn/ui" src="https://shieldcn.dev/badge/shadcn%2Fui-base--ui-ffffff.svg?logo=shadcnui&variant=secondary" />
+  <img alt="Next.js" src="https://shieldcn.dev/badge/Next.js-16-000000.svg?logo=nextdotjs&variant=secondary&size=xs&height=20" />
+  <img alt="React" src="https://shieldcn.dev/badge/React-19-61dafb.svg?logo=react&variant=secondary&size=xs&height=20" />
+  <img alt="TypeScript" src="https://shieldcn.dev/badge/TypeScript-5-3178c6.svg?logo=typescript&variant=secondary&size=xs&height=20" />
+  <img alt="Tailwind CSS" src="https://shieldcn.dev/badge/Tailwind-v4-06b6d4.svg?logo=tailwindcss&variant=secondary&size=xs&height=20" />
+  <img alt="shadcn/ui" src="https://shieldcn.dev/badge/shadcn%2Fui-base--ui-ffffff.svg?logo=shadcnui&variant=secondary&size=xs&height=20" />
 </p>
 
 A fully static export (`next build`), served by `hq` with no Node server in production.
@@ -280,8 +280,8 @@ A fully static export (`next build`), served by `hq` with no Node server in prod
 ### Desktop shell (`desktop/`, Tauri 2)
 
 <p>
-  <img alt="Tauri" src="https://shieldcn.dev/badge/Tauri-2-ffc131.svg?logo=tauri&variant=secondary" />
-  <img alt="Updater" src="https://shieldcn.dev/badge/Signed-updates-22c55e.svg?variant=secondary" />
+  <img alt="Tauri" src="https://shieldcn.dev/badge/Tauri-2-ffc131.svg?logo=tauri&variant=secondary&size=xs&height=20" />
+  <img alt="Updater" src="https://shieldcn.dev/badge/Signed-updates-22c55e.svg?variant=secondary&size=xs&height=20" />
 </p>
 
 - `tauri` 2 and `tauri-plugin-updater` 2, with updates verified against a minisign public key in `tauri.conf.json`.
@@ -292,9 +292,9 @@ A fully static export (`next build`), served by `hq` with no Node server in prod
 ### Build, CI and release
 
 <p>
-  <img alt="GitHub Actions" src="https://shieldcn.dev/badge/GitHub-Actions-2088ff.svg?logo=githubactions&variant=secondary" />
-  <img alt="Cargo" src="https://shieldcn.dev/badge/Cargo-build-dea584.svg?logo=rust&variant=secondary" />
-  <img alt="npm" src="https://shieldcn.dev/badge/npm-ci-cb3837.svg?logo=npm&variant=secondary" />
+  <img alt="GitHub Actions" src="https://shieldcn.dev/badge/GitHub-Actions-2088ff.svg?logo=githubactions&variant=secondary&size=xs&height=20" />
+  <img alt="Cargo" src="https://shieldcn.dev/badge/Cargo-build-dea584.svg?logo=rust&variant=secondary&size=xs&height=20" />
+  <img alt="npm" src="https://shieldcn.dev/badge/npm-ci-cb3837.svg?logo=npm&variant=secondary&size=xs&height=20" />
 </p>
 
 - **CI** (`ci.yml`): builds `hq` on Linux, Windows and macOS, runs clippy, and type-checks and builds the dashboard.
@@ -327,7 +327,7 @@ Every release ships portable archives plus native installers. Signed update arti
 | **v0.1.0** | First release: Rust core (CLI, MCP, local API), dashboard and portable archives for Windows, macOS and Linux |
 
 <p align="center">
-  <a href="https://github.com/EthanRodrigues001/profileinator/releases"><img alt="All releases" src="https://shieldcn.dev/github/release/EthanRodrigues001/profileinator.svg?variant=outline" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/releases"><img alt="All releases" src="https://shieldcn.dev/github/release/EthanRodrigues001/profileinator.svg?variant=outline&size=xs&height=20" /></a>
 </p>
 
 ## Contributing
@@ -341,7 +341,7 @@ HQ_DATA=/tmp/hq-dev ./hq/target/release/hq ui         # a throwaway profile, htt
 ```
 
 <p align="center">
-  <a href="https://github.com/EthanRodrigues001/profileinator/graphs/contributors"><img alt="Contributors" src="https://shieldcn.dev/github/contributors/EthanRodrigues001/profileinator.svg?variant=secondary" /></a>
+  <a href="https://github.com/EthanRodrigues001/profileinator/graphs/contributors"><img alt="Contributors" src="https://shieldcn.dev/github/contributors/EthanRodrigues001/profileinator.svg?variant=secondary&size=xs&height=20" /></a>
 </p>
 
 ## Plans
