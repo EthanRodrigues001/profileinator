@@ -1,373 +1,291 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation, type SimulationLinkDatum, type SimulationNodeDatum } from "d3-force";
-import { ChevronDown, ChevronUp, Eye, EyeOff, Search, Sparkles, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, ArrowUp, Check, ChevronRight, Copy, HardDrive, Home, Search } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { api } from "@/lib/hq";
 import { cn } from "@/lib/utils";
 import type { ViewProps } from "./views";
 
-type GNode = SimulationNodeDatum & { id: string; kind: string; label: string; deg: number };
-type GEdge = SimulationLinkDatum<GNode> & { rel: string; how: string; a: string; b: string };
-type Export = { nodes: { id: string; kind: string; label: string; deg: number }[]; edges: { a: string; b: string; rel: string; how: string }[] };
+type GNode = { id: string; kind: string; label: string; deg: number; local?: boolean };
+type Export = { nodes: GNode[]; edges: { a: string; b: string; rel: string; how: string }[] };
+type Link = { rel: string; dir: "in" | "out"; how: string; id: string; label: string; kind: string };
+type Explain = { id: string; kind: string; label: string; text: string; src: string; facts: { k: string; v: string }[]; links: Link[] };
 type Ask = { mode: string; seeds: string[]; neighbors: string[]; text: string };
-type Explain = { id: string; kind: string; label: string; text: string; src: string; facts: { k: string; v: string }[]; links: { rel: string; dir: string; how: string; id: string; label: string; kind: string }[] };
-type Tip = { x: number; y: number; n: GNode } | null;
 
 const COLOR: Record<string, string> = {
   person: "#f59e0b", tech: "#60a5fa", project: "#4ade80", experience: "#f472b6", education: "#a78bfa", org: "#94a3b8", achievement: "#facc15",
   claim: "#f87171", answer: "#2dd4bf", link: "#38bdf8", area: "#64748b", decision: "#fb923c", avoid: "#ef4444", goal: "#fde68a",
 };
-const KIND_NAME: Record<string, string> = { org: "organisation", area: "area / category", experience: "role", answer: "answer", claim: "claim gap" };
-const radius = (n: GNode) => (n.kind === "person" ? 9 : 3 + Math.min(7, Math.sqrt(n.deg) * 1.35));
-const SUGGEST = ["backend experience", "who did I mentor", "anything with Rust", "what should I not claim", "mobile apps I built"];
+const KIND: Record<string, string> = {
+  tech: "Skills & tools", project: "Projects", experience: "Roles", education: "Education", achievement: "Achievements", claim: "Gaps",
+  org: "Organisations", area: "Areas", decision: "Decisions", avoid: "Avoid", link: "Links", answer: "Answers", person: "You", goal: "Target",
+};
+const SINGULAR: Record<string, string> = { tech: "skill", project: "project", experience: "role", education: "education", achievement: "achievement", claim: "gap", org: "organisation", area: "area", decision: "decision", avoid: "avoid", link: "link", answer: "answer", person: "you", goal: "target" };
+const BROWSE = ["tech", "project", "experience", "education", "achievement", "claim", "org", "decision"];
+
+/** How a relationship reads from the focused node's side. */
+const PHRASE: Record<string, { in: string; out: string }> = {
+  USED: { in: "Used in", out: "Technologies used" }, USES: { in: "Used by", out: "Built with" }, IN_AREA: { in: "Contains", out: "Area" },
+  EVIDENCED_BY: { in: "Evidence for", out: "Evidence" }, HAS_LINK: { in: "Linked from", out: "Links" }, HAD_ROLE: { in: "Held by", out: "Roles" },
+  HELD: { in: "Held by", out: "Roles" }, STUDIED: { in: "Studied by", out: "Education" }, EARNED: { in: "Earned by", out: "Achievements" },
+  AT: { in: "People and roles here", out: "At" }, IN: { in: "Contains", out: "Part of" }, PART_OF: { in: "Contains", out: "Part of" },
+  ABOUT: { in: "Notes about this", out: "About" }, ANSWERS: { in: "Answered by", out: "Answers" }, AVOIDS: { in: "Avoided by", out: "Avoid" },
+  SHOULD_NOT_CLAIM: { in: "Don't claim", out: "Don't claim" }, MENTIONS: { in: "Mentioned in", out: "Mentions" }, WRITTEN_IN: { in: "Languages of", out: "Written in" },
+  LISTS: { in: "Listed by", out: "Lists" }, SAME_AS: { in: "Same as", out: "Same as" }, TARGETS: { in: "Targeted by", out: "Target" }, DECIDED: { in: "Decided by", out: "Decisions" },
+};
+const phrase = (l: Link) => PHRASE[l.rel]?.[l.dir] ?? l.rel.toLowerCase().replace(/_/g, " ");
+
+const trunc = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** Flow map: what points at the focused item on the left, what it leads to on the right. Static, so it reads instead of wobbling. */
+function EgoMap({ focus, links, onPick }: { focus: GNode; links: Link[]; onPick: (id: string) => void }) {
+  const [hover, setHover] = useState<string | null>(null);
+  const MAX = 8;
+  const order = (a: Link, b: Link) => a.kind.localeCompare(b.kind) || a.label.localeCompare(b.label);
+  const left = links.filter((l) => l.dir === "in").sort(order);
+  const right = links.filter((l) => l.dir === "out").sort(order);
+  const rows = Math.max(1, Math.min(MAX, Math.max(left.length, right.length)));
+  const W = 640, ROW = 30, H = 44 + rows * ROW, cy = H / 2 + 6;
+  const w = Math.min(190, 32 + focus.label.length * 7.2);
+  const col = (ls: Link[], x: number, side: "l" | "r") => {
+    const shown = ls.slice(0, MAX);
+    const y0 = cy - ((shown.length - 1) * ROW) / 2;
+    return shown.map((l, i) => {
+      const y = y0 + i * ROW;
+      const on = hover === l.id;
+      const x2 = side === "l" ? W / 2 - w / 2 : W / 2 + w / 2;
+      const d = side === "l" ? `M ${x} ${y} C ${x + 70} ${y}, ${x2 - 70} ${cy}, ${x2} ${cy}` : `M ${x2} ${cy} C ${x2 + 70} ${cy}, ${x - 70} ${y}, ${x} ${y}`;
+      return (
+        <g key={l.id + l.rel} className="cursor-pointer" onClick={() => onPick(l.id)} onMouseEnter={() => setHover(l.id)} onMouseLeave={() => setHover(null)}>
+          <path d={d} fill="none" strokeWidth={on ? 1.6 : 1} strokeDasharray={l.how === "derived" ? "3 4" : undefined} stroke={on ? COLOR[l.kind] : "currentColor"} className={on ? "" : "text-border"} />
+          <circle cx={x} cy={y} r={on ? 5.5 : 4.5} fill={COLOR[l.kind] ?? "#71717a"} />
+          <text x={x + (side === "l" ? -11 : 11)} y={y + 4} textAnchor={side === "l" ? "end" : "start"} fontSize="12" className={on ? "fill-foreground" : "fill-muted-foreground"}>{trunc(l.label, 26)}</text>
+          <rect x={side === "l" ? x - 190 : x} y={y - ROW / 2} width={190} height={ROW} fill="transparent" />
+        </g>
+      );
+    });
+  };
+  const extraL = left.length - MAX, extraR = right.length - MAX;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="mx-auto block w-full max-w-2xl" style={{ aspectRatio: `${W} / ${H}` }} role="img" aria-label={`Connections of ${focus.label}`}>
+      <text x={150} y={16} textAnchor="middle" fontSize="10.5" className="fill-muted-foreground/70">FOUND IN</text>
+      <text x={W - 150} y={16} textAnchor="middle" fontSize="10.5" className="fill-muted-foreground/70">LEADS TO</text>
+      {col(left, 150, "l")}
+      {col(right, W - 150, "r")}
+      <rect x={W / 2 - w / 2} y={cy - 15} width={w} height={30} rx={15} fill={COLOR[focus.kind] ?? "#f59e0b"} fillOpacity={0.16} stroke={COLOR[focus.kind] ?? "#f59e0b"} strokeOpacity={0.6} />
+      <text x={W / 2} y={cy + 4.5} textAnchor="middle" fontSize="12.5" fontWeight="600" className="fill-foreground">{trunc(focus.label, 24)}</text>
+      {extraL > 0 && <text x={150} y={H - 6} textAnchor="middle" fontSize="11" className="fill-muted-foreground">+{extraL} more below</text>}
+      {extraR > 0 && <text x={W - 150} y={H - 6} textAnchor="middle" fontSize="11" className="fill-muted-foreground">+{extraR} more below</text>}
+    </svg>
+  );
+}
 
 /**
- * The knowledge graph as a force-directed canvas. Types of node are pulled toward their own part of the canvas so the
- * structure reads at a glance. Pan by dragging the background, drag a node to move it, wheel to zoom, click for details.
- * Asking a question runs the same hybrid retrieval the MCP `ask` tool uses and lights up the matches.
+ * Evidence map. Pick any skill, project, role or achievement and see exactly what connects to it: what proves a skill, what a
+ * project was built with, where a role used what. It is the same graph agents walk when they answer questions about you.
  */
 export function GraphView({ go }: ViewProps) {
-  const box = useRef<HTMLDivElement>(null);
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const sim = useRef<Simulation<GNode, GEdge> | null>(null);
-  const view = useRef({ x: 0, y: 0, k: 1 });
-  const nodesRef = useRef<GNode[]>([]);
-  const edgesRef = useRef<GEdge[]>([]);
-  const hover = useRef<string | null>(null);
-  const live = useRef({ sel: null as string | null, asked: null as Ask | null, hidden: new Set<string>(), near: new Set<string>(), hub: false, derived: true });
-
   const [data, setData] = useState<Export | null>(null);
-  const [sel, setSel] = useState<string | null>(null);
+  const [trail, setTrail] = useState<string[]>(["person:me"]);
+  const focus = trail[trail.length - 1];
   const [info, setInfo] = useState<Explain | null>(null);
-  const [asked, setAsked] = useState<Ask | null>(null);
+  const [kind, setKind] = useState<string>("all");
+  const [find, setFind] = useState("");
   const [q, setQ] = useState("");
+  const [asked, setAsked] = useState<Ask | null>(null);
   const [busy, setBusy] = useState(false);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const [hub, setHub] = useState(false);
-  const [derived, setDerived] = useState(true);
-  const [tip, setTip] = useState<Tip>(null);
-  const [legendOpen, setLegendOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  useEffect(() => { api<Export>("graph_export").then(setData); }, []);
-
-  const kinds = useMemo(() => {
-    const c: Record<string, number> = {};
-    data?.nodes.forEach((n) => (c[n.kind] = (c[n.kind] ?? 0) + 1));
-    return Object.entries(c).sort((a, b) => b[1] - a[1]);
-  }, [data]);
-
-  const draw = useCallback(() => {
-    const c = canvas.current, b = box.current;
-    if (!c || !b) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = b.clientWidth, h = b.clientHeight;
-    if (c.width !== w * dpr || c.height !== h * dpr) { c.width = w * dpr; c.height = h * dpr; }
-    const ctx = c.getContext("2d")!;
-    const { x, y, k } = view.current;
-    const { sel, asked, hidden, near, hub, derived } = live.current;
-    const lit = asked ? new Set([...asked.seeds, ...asked.neighbors]) : null;
-    const seeds = new Set(asked?.seeds ?? []);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * (w / 2 + x), dpr * (h / 2 + y));
-    const dim = (id: string) => (sel ? !near.has(id) : lit ? !lit.has(id) : false);
-
-    for (const e of edgesRef.current) {
-      const s = e.source as GNode, t = e.target as GNode;
-      if (hidden.has(s.kind) || hidden.has(t.kind) || s.x == null || t.x == null) continue;
-      const on = sel ? e.a === sel || e.b === sel : lit ? lit.has(e.a) && lit.has(e.b) : false;
-      // links to you touch half the graph; they stay out of the way until selected
-      if (!on && !hub && (s.kind === "person" || t.kind === "person")) continue;
-      if (!on && !derived && e.how === "derived") continue;
-      ctx.strokeStyle = on ? "rgba(251,191,36,.8)" : dim(e.a) || dim(e.b) ? "rgba(255,255,255,.035)" : "rgba(255,255,255,.13)";
-      ctx.lineWidth = (on ? 1.4 : 0.8) / k;
-      ctx.setLineDash(e.how === "derived" ? [3 / k, 3 / k] : []);
-      ctx.beginPath(); ctx.moveTo(s.x, s.y!); ctx.lineTo(t.x, t.y!); ctx.stroke();
-      if (sel && on && k > 0.6) {
-        ctx.setLineDash([]);
-        ctx.fillStyle = "rgba(251,191,36,.9)";
-        ctx.font = `${8.5 / k}px ui-monospace, monospace`;
-        ctx.fillText(e.rel.toLowerCase().replace(/_/g, " "), (s.x + t.x) / 2 + 2 / k, (s.y! + t.y!) / 2 - 2 / k);
-      }
-    }
-    ctx.setLineDash([]);
-    for (const n of nodesRef.current) {
-      if (hidden.has(n.kind) || n.x == null) continue;
-      const r = radius(n);
-      ctx.globalAlpha = dim(n.id) ? 0.14 : 1;
-      ctx.fillStyle = COLOR[n.kind] ?? "#888";
-      ctx.beginPath(); ctx.arc(n.x, n.y!, r, 0, Math.PI * 2); ctx.fill();
-      if (seeds.has(n.id) || n.id === sel || n.id === hover.current) {
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.6 / k; ctx.beginPath(); ctx.arc(n.x, n.y!, r + 2.5 / k, 0, Math.PI * 2); ctx.stroke();
-      }
-      const label = n.id === sel || n.id === hover.current || seeds.has(n.id) || (!dim(n.id) && (n.deg >= 14 || k > 1.7 || (lit?.has(n.id) ?? false) || near.has(n.id)));
-      if (label) {
-        ctx.globalAlpha = dim(n.id) ? 0.3 : 1;
-        ctx.fillStyle = "#e7e8ec";
-        ctx.font = `${11 / k}px ui-sans-serif, system-ui, sans-serif`;
-        ctx.fillText(n.label.length > 34 ? n.label.slice(0, 33) + "…" : n.label, n.x + r + 3 / k, n.y! + 3.5 / k);
-      }
-    }
-    ctx.globalAlpha = 1;
-  }, []);
-
-  // keep the draw loop's view of the state current
+  // requests from the global search: jump to a node, or run a question
   useEffect(() => {
-    const near = new Set<string>();
-    if (sel) {
-      near.add(sel);
-      edgesRef.current.forEach((e) => { if (e.a === sel) near.add(e.b); if (e.b === sel) near.add(e.a); });
-    }
-    live.current = { sel, asked, hidden, near, hub, derived };
-    draw();
-  }, [sel, asked, hidden, hub, derived, draw]);
+    const apply = (m: { focus?: string; ask?: string }) => {
+      if (m.focus) jump(m.focus);
+      if (m.ask) { setQ(m.ask); ask(m.ask); }
+    };
+    try { const raw = sessionStorage.getItem("hq-graph-msg"); if (raw) { sessionStorage.removeItem("hq-graph-msg"); apply(JSON.parse(raw)); } } catch { /* storage blocked */ }
+    const h = (e: Event) => { try { sessionStorage.removeItem("hq-graph-msg"); } catch { /* storage blocked */ } apply((e as CustomEvent).detail); };
+    window.addEventListener("hq:graph", h);
+    return () => window.removeEventListener("hq:graph", h);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Zoom and centre so every visible node is in frame. */
-  const fit = useCallback(() => {
-    const b = box.current;
-    if (!b) return;
-    const vis = nodesRef.current.filter((n) => !live.current.hidden.has(n.kind) && n.x != null);
-    if (!vis.length) return;
-    const xs = vis.map((n) => n.x!), ys = vis.map((n) => n.y!);
-    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const k = Math.min(3, Math.max(0.3, 0.9 * Math.min(b.clientWidth / (x1 - x0 + 70), b.clientHeight / (y1 - y0 + 70))));
-    view.current = { k, x: -((x0 + x1) / 2) * k, y: -((y0 + y1) / 2) * k };
-    draw();
-  }, [draw]);
-
-  // build the simulation: links pull, nodes repel, and each kind of node is nudged toward its own anchor on a ring
+  useEffect(() => { api<Export>("graph_export").then(setData).catch((e) => toast.error((e as Error).message)); }, []);
   useEffect(() => {
-    if (!data) return;
-    const nodes: GNode[] = data.nodes.map((n) => ({ ...n }));
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    const edges: GEdge[] = data.edges.filter((e) => byId.has(e.a) && byId.has(e.b)).map((e) => ({ ...e, source: e.a, target: e.b }));
-    nodesRef.current = nodes; edgesRef.current = edges;
-    const order = [...new Set(nodes.filter((n) => n.kind !== "person").map((n) => n.kind))];
-    const anchor = (kind: string) => {
-      const i = order.indexOf(kind);
-      const a = (i / Math.max(1, order.length)) * Math.PI * 2 - Math.PI / 2;
-      return { x: Math.cos(a) * 230, y: Math.sin(a) * 230 };
-    };
-    const person = nodes.find((n) => n.kind === "person");
-    if (person) { person.fx = 0; person.fy = 0; }
-    const s = forceSimulation<GNode>(nodes)
-      .force("link", forceLink<GNode, GEdge>(edges).id((n) => n.id).distance((l) => (l.rel === "IN_AREA" || l.rel === "IN" ? 26 : l.rel === "HELD" || l.rel === "HAS_LINK" ? 70 : 44)).strength((l) => ((l.source as GNode).kind === "person" || (l.target as GNode).kind === "person" ? 0.08 : 0.5)))
-      .force("charge", forceManyBody<GNode>().strength(-34))
-      .force("x", forceX<GNode>((n) => anchor(n.kind).x).strength((n) => (n.kind === "person" ? 0 : 0.07)))
-      .force("y", forceY<GNode>((n) => anchor(n.kind).y).strength((n) => (n.kind === "person" ? 0 : 0.07)))
-      .force("center", forceCenter(0, 0))
-      .force("collide", forceCollide<GNode>((n) => radius(n) + 2.5))
-      .stop();
-    s.tick(320);          // settle off-screen so the graph appears already arranged
-    fit();
-    s.on("tick", draw);   // later motion only happens while a node is being dragged
-    sim.current = s;
-    return () => { s.stop(); };
-  }, [data, draw, fit]);
+    let dead = false;
+    api<Explain>("graph_explain", { node: focus, json: true }).then((x) => { if (!dead) setInfo(x); }).catch(() => { if (!dead) setInfo(null); });
+    return () => { dead = true; };
+  }, [focus]);
 
-  // pointer handling: pan, node drag, zoom, hover, select
-  useEffect(() => {
-    const c = canvas.current;
-    if (!c) return;
-    const world = (e: { clientX: number; clientY: number }) => {
-      const r = c.getBoundingClientRect(), { x, y, k } = view.current;
-      return { x: (e.clientX - r.left - r.width / 2 - x) / k, y: (e.clientY - r.top - r.height / 2 - y) / k };
-    };
-    const at = (e: { clientX: number; clientY: number }) => {
-      const p = world(e), k = view.current.k;
-      let best: GNode | null = null, bd = Infinity;
-      for (const n of nodesRef.current) {
-        if (live.current.hidden.has(n.kind) || n.x == null) continue;
-        const d = Math.hypot(n.x - p.x, n.y! - p.y);
-        if (d < radius(n) + 4 / k && d < bd) { best = n; bd = d; }
-      }
-      return best;
-    };
-    let drag: { sx: number; sy: number; ox: number; oy: number; moved: boolean; node: GNode | null } | null = null;
-    const down = (e: PointerEvent) => {
-      drag = { sx: e.clientX, sy: e.clientY, ox: view.current.x, oy: view.current.y, moved: false, node: at(e) };
-      c.setPointerCapture(e.pointerId);
-    };
-    const move = (e: PointerEvent) => {
-      if (drag) {
-        const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
-        if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-        if (drag.node && drag.moved) {
-          const p = world(e);
-          drag.node.fx = p.x; drag.node.fy = p.y;
-          sim.current?.alphaTarget(0.25).restart();
-        } else if (!drag.node) {
-          view.current.x = drag.ox + dx; view.current.y = drag.oy + dy;
-        }
-        setTip(null);
-      } else {
-        const n = at(e);
-        if (hover.current !== (n?.id ?? null)) {
-          hover.current = n?.id ?? null;
-          c.style.cursor = n ? "pointer" : "grab";
-          const r = c.getBoundingClientRect();
-          setTip(n ? { x: e.clientX - r.left, y: e.clientY - r.top, n } : null);
-        }
-      }
-      draw();
-    };
-    const up = (e: PointerEvent) => {
-      if (drag) {
-        if (!drag.moved) setSel(at(e)?.id ?? null);
-        if (drag.node && drag.moved) { drag.node.fx = null; drag.node.fy = null; sim.current?.alphaTarget(0); }
-      }
-      drag = null;
-    };
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const r = c.getBoundingClientRect(), v = view.current;
-      const k2 = Math.min(5, Math.max(0.3, v.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
-      const px = e.clientX - r.left - r.width / 2, py = e.clientY - r.top - r.height / 2;
-      v.x = px - ((px - v.x) / v.k) * k2; v.y = py - ((py - v.y) / v.k) * k2; v.k = k2;
-      draw();
-    };
-    const leave = () => { hover.current = null; setTip(null); draw(); };
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { setSel(null); setAsked(null); } };
-    c.addEventListener("pointerdown", down); c.addEventListener("pointermove", move); c.addEventListener("pointerup", up); c.addEventListener("pointerleave", leave);
-    c.addEventListener("wheel", wheel, { passive: false }); window.addEventListener("keydown", key);
-    const ro = new ResizeObserver(draw); if (box.current) ro.observe(box.current);
-    return () => {
-      c.removeEventListener("pointerdown", down); c.removeEventListener("pointermove", move); c.removeEventListener("pointerup", up); c.removeEventListener("pointerleave", leave);
-      c.removeEventListener("wheel", wheel); window.removeEventListener("keydown", key); ro.disconnect();
-    };
-  }, [draw, data]);
+  const byId = useMemo(() => new Map((data?.nodes ?? []).map((n) => [n.id, n])), [data]);
+  const counts = useMemo(() => { const c: Record<string, number> = {}; data?.nodes.forEach((n) => { c[n.kind] = (c[n.kind] ?? 0) + 1; }); return c; }, [data]);
+  const list = useMemo(() => {
+    const f = find.trim().toLowerCase();
+    return (data?.nodes ?? []).filter((n) => (kind === "all" ? BROWSE.includes(n.kind) : n.kind === kind) && (!f || n.label.toLowerCase().includes(f))).sort((a, b) => b.deg - a.deg || a.label.localeCompare(b.label));
+  }, [data, kind, find]);
 
-  useEffect(() => {
-    if (!sel) { setInfo(null); return; }
-    api<Explain>("graph_explain", { node: sel, json: true }).then(setInfo).catch(() => setInfo(null));
-  }, [sel]);
+  // example questions built from what is actually in the profile
+  const suggestions = useMemo(() => {
+    const top = (k: string) => [...(data?.nodes ?? [])].filter((n) => n.kind === k).sort((a, b) => b.deg - a.deg)[0];
+    const s: string[] = [];
+    const tech = top("tech"), project = top("project"), role = top("experience");
+    if (tech) s.push(`what backs up ${tech.label}?`);
+    if (project) s.push(`tell me about ${project.label}`);
+    if (role) s.push(`what did I do as ${role.label.split(" @ ")[0]}?`);
+    if (counts.claim) s.push("what should I not claim");
+    return s;
+  }, [data, counts]);
 
-  const ask = async (text: string) => {
+  const node = byId.get(focus) ?? { id: focus, kind: info?.kind ?? "person", label: info?.label ?? "You", deg: 0 };
+  const groups = useMemo(() => {
+    const g = new Map<string, Link[]>();
+    for (const l of info?.links ?? []) { const k = phrase(l); g.set(k, [...(g.get(k) ?? []), l]); }
+    return [...g.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [info]);
+
+  const ask = useCallback(async (text: string) => {
     if (!text.trim()) return;
-    setBusy(true); setSel(null);
-    try {
-      const res = await api<Ask | string>("ask", { q: text, json: true, limit: 8, depth: 1 });
-      // older servers answered a miss with a bare string; keep the view alive either way
-      setAsked(typeof res === "string" ? { mode: "", seeds: [], neighbors: [], text: res } : { ...res, seeds: res.seeds ?? [], neighbors: res.neighbors ?? [] });
-    } finally { setBusy(false); }
+    setBusy(true);
+    try { setAsked(await api<Ask>("ask", { q: text, json: true })); } catch (e) { toast.error((e as Error).message); }
+    setBusy(false);
+  }, []);
+  /** From the browse list or an answer: start a fresh trail from you. From the map or a connection: extend the trail. */
+  const jump = (id: string) => { setTrail(id === "person:me" ? ["person:me"] : ["person:me", id]); setAsked(null); };
+  const pick = (id: string) => {
+    setAsked(null);
+    setTrail((tr) => { const i = tr.indexOf(id); return i >= 0 ? tr.slice(0, i + 1) : [...tr, id].slice(-8); });
   };
-  const toggle = (k: string) => setHidden((h) => { const n = new Set(h); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const back = () => setTrail((tr) => (tr.length > 1 ? tr.slice(0, -1) : tr));
 
-  // turn "(id kind:key)" in the answer text into links that select the node
-  const answer = (asked?.text ?? "").split(/(\(id [^)]+\))/g).map((part, i) => {
-    const m = /^\(id ([^)]+)\)$/.exec(part);
-    return m ? <button key={i} onClick={() => setSel(m[1])} className="text-brand hover:underline">{part}</button> : <span key={i}>{part}</span>;
-  });
+  const evidence = () => {
+    if (!info) return;
+    const lines = [`${info.label} (${SINGULAR[info.kind] ?? info.kind})`, ...info.facts.map((f) => `- ${f.k}: ${f.v}`), "", ...groups.flatMap(([h, ls]) => [`${h}:`, ...ls.map((l) => `- ${l.label}`)])];
+    navigator.clipboard.writeText(lines.join("\n")).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); toast.success("Evidence copied"); });
+  };
 
   return (
-    <div className="@container flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-        <div className="relative min-w-64 flex-1">
-          <Sparkles className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-brand" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask(q)} placeholder="Ask your graph: backend experience, who did I mentor, anything with Rust…"
-            className="h-9 w-full rounded-lg border border-border bg-card/40 pl-9 pr-3 text-sm outline-none transition placeholder:text-muted-foreground focus:border-brand/40" />
+    <div className="flex h-[calc(100vh-8.5rem)] min-h-[32rem]">
+      {/* browse */}
+      <aside className="flex w-64 shrink-0 flex-col border-r border-border">
+        <div className="space-y-2.5 border-b border-border p-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find anything…" className="h-8 pl-8 text-[13px] md:text-[13px]" />
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {["all", ...BROWSE.filter((k) => counts[k])].map((k) => (
+              <button key={k} onClick={() => setKind(k)} className={cn("h-6 rounded-md border px-2 text-[11px] transition", kind === k ? "border-brand/50 bg-brand/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground")}>
+                {k === "all" ? "All" : KIND[k]}
+              </button>
+            ))}
+          </div>
         </div>
-        <Button size="sm" disabled={busy || !q.trim()} onClick={() => ask(q)}><Search className="size-3.5" />{busy ? "Thinking…" : "Ask"}</Button>
-        <Button size="sm" variant="outline" onClick={fit}>Fit</Button>
-        {(asked || sel) && <Button size="sm" variant="outline" onClick={() => { setAsked(null); setSel(null); setQ(""); }}><X className="size-3.5" />Clear</Button>}
-        <div className="flex w-full flex-wrap gap-1.5 pt-1">
-          {!asked && SUGGEST.map((s) => <button key={s} onClick={() => { setQ(s); ask(s); }} className="rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground transition hover:border-brand/40 hover:text-foreground">{s}</button>)}
-          {asked && <span className="text-xs text-muted-foreground">{asked.mode} · {asked.seeds.length} matches, {asked.neighbors.length} connected</span>}
+        <ul className="min-h-0 flex-1 overflow-y-auto py-1">
+          {list.map((n) => (
+            <li key={n.id}>
+              <button onClick={() => jump(n.id)} className={cn("flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] transition", focus === n.id ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")}>
+                <i className="size-2 shrink-0 rounded-full" style={{ background: COLOR[n.kind] }} />
+                <span className="min-w-0 flex-1 truncate">{n.label}</span>
+                {n.local && <span title="Local only, not on GitHub"><HardDrive className="size-3 text-muted-foreground/70" /></span>}
+                <span className="font-mono text-[11px] text-muted-foreground/70">{n.deg}</span>
+              </button>
+            </li>
+          ))}
+          {data && !list.length && <li className="px-3 py-4 text-xs text-muted-foreground">Nothing matches.</li>}
+        </ul>
+      </aside>
+
+      {/* focus */}
+      <section className="min-w-0 flex-1 overflow-y-auto">
+        <div className="border-b border-border px-6 py-3">
+          <nav aria-label="Trail" className="mb-2.5 flex items-center gap-1 text-xs">
+            <button onClick={() => jump("person:me")} title="Back to you" className={cn("inline-flex h-6 items-center gap-1 rounded-md px-1.5 transition hover:bg-accent", focus === "person:me" ? "text-foreground" : "text-muted-foreground hover:text-foreground")}><Home className="size-3.5" />{byId.get("person:me")?.label ?? "You"}</button>
+            {trail.slice(1).map((id, i) => {
+              const n = byId.get(id);
+              const last = i === trail.length - 2;
+              return (
+                <span key={id} className="flex min-w-0 items-center gap-1">
+                  <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
+                  <button onClick={() => pick(id)} disabled={last} className={cn("h-6 max-w-40 truncate rounded-md px-1.5 transition", last ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}>{n?.label ?? id}</button>
+                </span>
+              );
+            })}
+            {trail.length > 1 && <button onClick={back} className="ml-auto inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"><ArrowLeft className="size-3.5" />Back</button>}
+          </nav>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask(q)} placeholder="Ask your profile: what backs up my backend experience?" className="h-9 pr-10 text-[13px] md:text-[13px]" />
+              <button onClick={() => ask(q)} disabled={busy || !q.trim()} aria-label="Ask" className="absolute right-1.5 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md bg-foreground text-background transition hover:opacity-90 disabled:opacity-40"><ArrowUp className="size-3.5" /></button>
+            </div>
+          </div>
+          {!asked && <div className="mt-2 flex flex-wrap gap-1.5">{suggestions.map((s) => <button key={s} onClick={() => { setQ(s); ask(s); }} className="rounded-full border border-border px-2.5 py-0.5 text-[11px] text-muted-foreground transition hover:text-foreground">{s}</button>)}</div>}
+          {asked && (
+            <div className="mt-3 rounded-lg border border-border">
+              <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs text-muted-foreground">
+                <span>{asked.seeds.length ? `${asked.seeds.length} best match${asked.seeds.length === 1 ? "" : "es"}` : "Nothing stored matches. It is probably not in your profile."}</span>
+                <button onClick={() => setAsked(null)} className="hover:text-foreground">Close</button>
+              </div>
+              <ul className="divide-y divide-border">
+                {asked.seeds.slice(0, 6).map((id) => { const n = byId.get(id); return n ? (
+                  <li key={id}><button onClick={() => jump(id)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] hover:bg-muted/30"><i className="size-2 rounded-full" style={{ background: COLOR[n.kind] }} /><span className="flex-1 truncate">{n.label}</span><span className="text-[11px] text-muted-foreground">{SINGULAR[n.kind] ?? n.kind}</span></button></li>
+                ) : null; })}
+              </ul>
+            </div>
+          )}
         </div>
-      </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div ref={box} className="relative min-w-0 flex-1 overflow-hidden">
-          <canvas ref={canvas} className="absolute inset-0 size-full cursor-grab touch-none" />
-          {!data && <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground">Building graph…</div>}
+        <div className="px-6 pb-10 pt-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground"><i className="size-2 rounded-full" style={{ background: COLOR[node.kind] }} />{SINGULAR[node.kind] ?? node.kind}{info?.src && <span className="font-mono text-[11px] text-muted-foreground/70">· {info.src}</span>}</div>
+              <h1 className="mt-1 flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight">{node.label}{byId.get(node.id)?.local && <span className="inline-flex h-6 items-center gap-1.5 rounded-md border border-dashed border-border px-2 text-xs font-medium text-muted-foreground"><HardDrive className="size-3.5" />Local only</span>}</h1>
+              {info?.text && <p className="mt-1 max-w-xl text-sm text-muted-foreground">{info.text.trim()}</p>}
+            </div>
+            <Button size="sm" variant="outline" onClick={evidence}>{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}Copy as evidence</Button>
+          </div>
 
-          {tip && (
-            <div className="pointer-events-none absolute z-10 rounded-lg border border-border bg-popover px-2.5 py-1.5 text-xs shadow-xl" style={{ left: Math.min(tip.x + 14, (box.current?.clientWidth ?? 600) - 190), top: tip.y + 14 }}>
-              <div className="flex items-center gap-1.5 font-medium"><i className="size-2 rounded-full" style={{ background: COLOR[tip.n.kind] }} />{tip.n.label}</div>
-              <div className="mt-0.5 text-muted-foreground">{KIND_NAME[tip.n.kind] ?? tip.n.kind} · {tip.n.deg} connection{tip.n.deg === 1 ? "" : "s"}</div>
+          {focus === "person:me" && <p className="mt-4 text-[13px] text-muted-foreground">Everything in your profile connects through you. Pick a skill or project on the left to see what backs it up.</p>}
+
+          {info && (info.links.length > 0 || info.facts.length > 0) && (
+            <div className="mt-5 divide-y divide-border border-y border-border">
+              {info.links.length > 0 && <EgoMap focus={node} links={info.links} onPick={pick} />}
+              {info.facts.length > 0 && (
+                <dl className="grid grid-cols-2 gap-x-8 gap-y-3 py-3.5 sm:grid-cols-3 lg:grid-cols-4">
+                  {info.facts.map((f) => (
+                    <div key={f.k} className="min-w-0">
+                      <dt className="text-[11px] text-muted-foreground">{f.k.replace(/_/g, " ")}</dt>
+                      <dd className="mt-0.5 line-clamp-3 break-words text-[13px]">{f.v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
             </div>
           )}
 
-          {/* legend: collapsed to a pill so it never sits over the graph; open it to filter node types and link display */}
-          <div className="absolute bottom-3 left-3 text-xs">
-            {legendOpen ? (
-              <div className="w-48 rounded-xl border border-border bg-background/90 p-2 backdrop-blur">
-                <button onClick={() => setLegendOpen(false)} className="flex w-full items-center justify-between px-1.5 pb-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground transition hover:text-foreground">
-                  Node types <ChevronDown className="size-3.5" />
-                </button>
-                <ul className="max-h-44 overflow-y-auto">
-                  {kinds.map(([k, n]) => (
-                    <li key={k}>
-                      <button onClick={() => toggle(k)} className={cn("flex w-full items-center gap-2 rounded-md px-1.5 py-[3px] text-left transition hover:bg-accent/40", hidden.has(k) && "opacity-40")}>
-                        <i className="size-2.5 shrink-0 rounded-full" style={{ background: COLOR[k] ?? "#888" }} />
-                        <span className="flex-1 truncate">{KIND_NAME[k] ?? k}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground">{n}</span>
-                        {hidden.has(k) ? <EyeOff className="size-3 text-muted-foreground" /> : <Eye className="size-3 text-muted-foreground/50" />}
+          <div className="mt-6 space-y-6">
+            {groups.map(([head, ls]) => (
+              <div key={head}>
+                <div className="mb-1.5 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/80">{head}<span className="font-mono normal-case tracking-normal text-muted-foreground/60">{ls.length}</span></div>
+                <ul className="divide-y divide-border border-y border-border">
+                  {ls.map((l) => (
+                    <li key={l.id + l.rel}>
+                      <button onClick={() => pick(l.id)} className="-mx-3 flex w-[calc(100%+1.5rem)] items-center gap-3 px-3 py-2 text-left text-[13px] transition hover:bg-muted/30">
+                        <i className="size-2 shrink-0 rounded-full" style={{ background: COLOR[l.kind] }} />
+                        <span className="min-w-0 flex-1 truncate">{l.label}</span>
+                        {byId.get(l.id)?.local && <span title="Local only, not on GitHub"><HardDrive className="size-3 text-muted-foreground/70" /></span>}
+                        <span className="text-[11px] text-muted-foreground">{SINGULAR[l.kind] ?? l.kind}</span>
+                        {l.how === "derived" && <span className="text-[11px] text-muted-foreground/70" title="Inferred by matching names, not written in your data">inferred</span>}
                       </button>
                     </li>
                   ))}
                 </ul>
-                <div className="mt-1.5 space-y-0.5 border-t border-border pt-1.5">
-                  <button onClick={() => setHub((v) => !v)} className="flex w-full items-center justify-between rounded-md px-1.5 py-[3px] transition hover:bg-accent/40"><span>Links to you</span><span className={cn("font-mono text-[10px]", hub ? "text-brand" : "text-muted-foreground")}>{hub ? "shown" : "hidden"}</span></button>
-                  <button onClick={() => setDerived((v) => !v)} className="flex w-full items-center justify-between rounded-md px-1.5 py-[3px] transition hover:bg-accent/40"><span>Inferred (dashed)</span><span className={cn("font-mono text-[10px]", derived ? "text-brand" : "text-muted-foreground")}>{derived ? "shown" : "hidden"}</span></button>
-                </div>
               </div>
-            ) : (
-              <button onClick={() => setLegendOpen(true)} className="flex items-center gap-2 rounded-full border border-border bg-background/90 py-1 pl-2.5 pr-2 backdrop-blur transition hover:border-brand/40">
-                <span className="flex -space-x-1">{kinds.slice(0, 5).map(([k]) => <i key={k} className="size-2.5 rounded-full ring-1 ring-background" style={{ background: COLOR[k] ?? "#888" }} />)}</span>
-                Node types{hidden.size > 0 && <span className="font-mono text-[10px] text-brand">{hidden.size} hidden</span>}
-                <ChevronUp className="size-3.5 text-muted-foreground" />
-              </button>
-            )}
+            ))}
+            {info && !info.links.length && <p className="text-sm text-muted-foreground">Nothing is connected to this yet.</p>}
           </div>
-          <div className="pointer-events-none absolute right-3 top-3 rounded-md border border-border bg-background/80 px-2 py-1 text-[11px] text-muted-foreground backdrop-blur">
-            {data ? `${data.nodes.length} nodes · ${data.edges.length} edges · every node connected` : ""}
-          </div>
+          <button onClick={() => go("context")} className="mt-8 text-xs text-muted-foreground underline">Edit the underlying facts in Context</button>
         </div>
-
-        <aside className="hidden w-[22rem] shrink-0 overflow-y-auto border-l border-border @4xl:block">
-          {info ? (
-            <div className="p-4">
-              <div className="flex items-start gap-2">
-                <i className="mt-1.5 size-2.5 shrink-0 rounded-full" style={{ background: COLOR[info.kind] ?? "#888" }} />
-                <div className="min-w-0 flex-1"><h2 className="font-medium leading-snug">{info.label}</h2><Badge variant="outline" className="mt-1">{KIND_NAME[info.kind] ?? info.kind}</Badge></div>
-                <button aria-label="Close" onClick={() => setSel(null)} className="rounded p-1 text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
-              </div>
-              {info.text.trim() && <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">{info.text.length > 420 ? info.text.slice(0, 420) + "…" : info.text}</p>}
-              {info.facts.length > 0 && (
-                <dl className="mt-3 space-y-1.5 border-t border-border pt-3 text-[13px]">
-                  {info.facts.map((f) => <div key={f.k} className="flex gap-3"><dt className="w-24 shrink-0 font-mono text-[11px] uppercase text-muted-foreground">{f.k.replace(/_/g, " ")}</dt><dd className="min-w-0 break-words">{f.v}</dd></div>)}
-                </dl>
-              )}
-              {info.src && <p className="mt-3 font-mono text-[11px] text-muted-foreground">stored at {info.src}</p>}
-              {info.kind === "project" && <Button className="mt-3" size="sm" variant="outline" onClick={() => go("project", info.label)}>Open project</Button>}
-              <h3 className="mt-5 border-t border-border pt-3 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">Connections {info.links.length}</h3>
-              <ul className="mt-2 space-y-1">
-                {info.links.slice(0, 60).map((l, i) => (
-                  <li key={i}>
-                    <button onClick={() => setSel(l.id)} className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] transition hover:bg-accent/40">
-                      <i className="size-2 shrink-0 rounded-full" style={{ background: COLOR[l.kind] ?? "#888" }} />
-                      <span className="min-w-0 flex-1 truncate">{l.label}</span>
-                      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{l.dir === "out" ? "" : "← "}{l.rel}{l.how === "derived" ? " ·d" : ""}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : asked ? (
-            <div className="p-4"><h2 className="mb-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">Answer</h2><pre className="whitespace-pre-wrap font-mono text-[11.5px] leading-relaxed text-foreground/90">{answer}</pre></div>
-          ) : (
-            <div className="space-y-3 p-4 text-[13px] leading-relaxed text-muted-foreground">
-              <h2 className="font-medium text-foreground">Your knowledge graph</h2>
-              <p>Everything in your profile as connected facts: roles, schools, projects, technologies, achievements, claims and decisions. It is rebuilt from your single profile file each time, so it never drifts.</p>
-              <p>Click a node to read it and follow its connections, drag nodes to rearrange, and ask a question to light up the matches. The same retrieval is available to AI chats through the MCP tools <code>ask</code>, <code>graph_neighbors</code>, <code>graph_path</code> and <code>graph_explain</code>.</p>
-              <p>Solid lines are stated in your data. Dashed lines were inferred by matching names. Press Esc to clear.</p>
-            </div>
-          )}
-        </aside>
-      </div>
+      </section>
     </div>
   );
 }

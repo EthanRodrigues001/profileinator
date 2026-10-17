@@ -1,4 +1,7 @@
 "use client";
+import { SearchX } from "lucide-react";
+import { EmptyState } from "@/components/kit/empty-state";
+import { Input } from "@/components/ui/input";
 import { Fragment, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Columns3, Info, ListFilter, Search, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,13 +57,17 @@ type Props<T> = {
   /** Comfortable rows (56px) instead of dense ones (36px). */
   roomy?: boolean;
   empty?: string;
+  /** Buttons shown in the toolbar, to the left of the search box. */
+  actions?: React.ReactNode;
+  /** Row key to show as selected (for pages that drive the inspector rail). */
+  selectedKey?: string;
 };
 
 /**
  * Dense data table: title and count, Filter and Columns menus, search, sticky muted header, hairline rows,
  * grouped sections with hints, sortable columns. Generic over the row type.
  */
-export function DataTable<T>({ rows, columns, rowKey, title, noun = "rows", searchText, filters = [], groups, onRowClick, selectable, toolbar = true, roomy, empty = "No matches." }: Props<T>) {
+export function DataTable<T>({ rows, columns, rowKey, title, noun = "rows", searchText, filters = [], groups, onRowClick, selectable, toolbar = true, roomy, empty = "No matches.", actions, selectedKey }: Props<T>) {
   const [q, setQ] = useState("");
   const [panel, setPanel] = useState<"filter" | "columns" | null>(null);
   const [active, setActive] = useState<Record<string, string>>({});
@@ -108,11 +115,15 @@ export function DataTable<T>({ rows, columns, rowKey, title, noun = "rows", sear
           {(q || nActive > 0 || sort) && (
             <button onClick={() => { setQ(""); setActive({}); setSort(null); }} className={btn}><X className="size-3.5" />Clear</button>
           )}
-          {searchText && (
-            <div className="relative ml-auto w-full @md:w-64">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${noun}…`}
-                className="h-8 w-full rounded-md border border-border bg-card/40 pl-8 pr-2 text-[13px] outline-none transition placeholder:text-muted-foreground focus:border-brand/40" />
+          {(searchText || actions) && (
+            <div className="ml-auto flex w-full items-center gap-2 @md:w-auto">
+              {actions}
+              {searchText && (
+                <div className="relative w-full @md:w-64">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${noun}…`} className="h-8 pl-8 text-[13px] md:text-[13px]" />
+                </div>
+              )}
             </div>
           )}
 
@@ -188,7 +199,7 @@ export function DataTable<T>({ rows, columns, rowKey, title, noun = "rows", sear
                 {!shut && s.rows.map((r) => {
                   const id = rowKey(r);
                   return (
-                    <tr key={id} onClick={() => onRowClick?.(r)} className={cn("border-b border-border/50 transition-colors hover:bg-accent/30", onRowClick && "cursor-pointer", sel.has(id) && "bg-accent/40")}>
+                    <tr key={id} onClick={() => onRowClick?.(r)} className={cn("border-b border-border/50 transition-colors hover:bg-accent/30", onRowClick && "cursor-pointer", (sel.has(id) || id === selectedKey) && "bg-accent/40")}>
                       {selectable && (
                         <td className="pl-4" onClick={(e) => e.stopPropagation()}>
                           <Checkbox checked={sel.has(id)} onCheckedChange={(v) => setSel((x) => { const n = new Set(x); if (v) n.add(id); else n.delete(id); return n; })} aria-label="Select row" />
@@ -201,7 +212,7 @@ export function DataTable<T>({ rows, columns, rowKey, title, noun = "rows", sear
               </Fragment>
             );
           })}
-          {!view.length && <tr><td colSpan={span} className="h-24 text-center text-muted-foreground">{empty}</td></tr>}
+          {!view.length && <tr><td colSpan={span} className="p-4"><EmptyState compact icon={SearchX} title={empty} /></td></tr>}
         </tbody>
       </table>
     </div>

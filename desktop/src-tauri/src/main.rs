@@ -42,13 +42,14 @@ fn main() {
         .setup(|app| {
             let exe = std::env::current_exe()?;
             let hq_name = if cfg!(windows) { "hq.exe" } else { "hq" };
-            // installed: hq and ui/ are bundled resources. Source checkout: hq sits beside this exe and ui/out is in the project root.
+            // Source checkout (dev): use the freshly built hq and ui/out so changes show without re-bundling.
+            // Installed: hq and ui/ are bundled resources.
+            let home: PathBuf = exe.ancestors().nth(5).map(PathBuf::from).unwrap_or_default();
+            let dev = (exe.with_file_name(hq_name), home.join("ui/out"));
             let res = app.path().resource_dir().ok();
-            let bundled = res.as_ref().map(|r| (r.join("bin").join(hq_name), r.join("ui"))).filter(|(h, u)| h.exists() && u.join("index.html").exists());
-            let (hq, ui): (PathBuf, PathBuf) = bundled.unwrap_or_else(|| {
-                let home: PathBuf = exe.ancestors().nth(5).map(PathBuf::from).unwrap_or_default();
-                (exe.with_file_name(hq_name), home.join("ui/out"))
-            });
+            let bundled = res.as_ref().map(|r| (r.join("bin").join(hq_name), r.join("ui")));
+            let (hq, ui): (PathBuf, PathBuf) = if dev.0.exists() && dev.1.join("index.html").exists() { dev }
+                else { bundled.filter(|(h, u)| h.exists() && u.join("index.html").exists()).unwrap_or(dev) };
             let child = Command::new(hq)
                 .args(["ui", &PORT.to_string(), "--no-open"])
                 .env("HQ_UI", ui)

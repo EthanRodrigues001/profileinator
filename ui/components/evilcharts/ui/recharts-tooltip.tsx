@@ -35,6 +35,8 @@ function ChartTooltipContent({
   selected,
   roundness = "lg",
   variant = "default",
+  hideZero = false,
+  valueFormat,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
   React.ComponentProps<"div"> & {
     hideLabel?: boolean;
@@ -43,6 +45,10 @@ function ChartTooltipContent({
     nameKey?: string;
     labelKey?: string;
     selected?: string | null;
+    /** Skip rows whose value is 0 (stacked series where only one is filled per category). */
+    hideZero?: boolean;
+    /** Render a row's value as text, e.g. a unit or a percentage. */
+    valueFormat?: (value: number, item: unknown) => string;
     roundness?: TooltipRoundness;
     variant?: TooltipVariant;
   } & Omit<
@@ -94,7 +100,7 @@ function ChartTooltipContent({
       {!nestLabel ? tooltipLabel : null}
       <div className="grid gap-1.5">
         {payload
-          .filter((item) => item.type !== "none")
+          .filter((item) => item.type !== "none" && !(hideZero && Number(item.value) === 0))
           .map((item, index) => {
             // For pie charts, item.name contains the sector name (e.g., "chrome")
             // For radial charts, the name is in item.payload[nameKey]
@@ -153,7 +159,7 @@ function ChartTooltipContent({
                       {item.value != null && (
                         <span className="text-foreground font-mono font-medium tabular-nums">
                           {typeof item.value === "number"
-                            ? item.value.toLocaleString()
+                            ? (valueFormat ? valueFormat(item.value, item) : item.value.toLocaleString())
                             : String(item.value)}
                         </span>
                       )}

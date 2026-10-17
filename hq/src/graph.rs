@@ -226,7 +226,8 @@ pub fn build() -> Graph {
     // projects
     if let Some(map) = pr.as_object() {
         for (name, p) in map {
-            let text = format!("{} {} {} {} {} {} {} {}", s(p, "tagline"), s(p, "desc"), s(p, "summary"), s(p, "category"), s(p, "status"), s(p, "when"), s(p, "note"), list(&p["bullets"]).join("; "));
+            let local = !p["url"].is_string();
+            let text = format!("{} {} {} {} {} {} {} {} {}", if local { "local only, not on GitHub" } else { "" }, s(p, "tagline"), s(p, "desc"), s(p, "summary"), s(p, "category"), s(p, "status"), s(p, "when"), s(p, "note"), list(&p["bullets"]).join("; "));
             let pn = g.add("project", &norm(name), name, &text, &format!("projects/{name}"));
             for (k, v) in [("category", s(p, "category")), ("visibility", s(p, "visibility")), ("primary", s(p, "primary")), ("site", if s(p, "live_url").is_empty() { s(p, "homepage") } else { s(p, "live_url") }),
                 ("when", s(p, "when")), ("local_path", s(p, "local_path"))] {
@@ -234,6 +235,11 @@ pub fn build() -> Graph {
             }
             if p["pinned"] == true {
                 g.fact(pn, "pinned", "yes (on resume and profile)");
+            }
+            if local {
+                g.fact(pn, "hosting", "local only (not on GitHub)");
+                let area = g.add("area", "hosting-local", "Local only (not on GitHub)", "projects that exist only on this computer", "");
+                g.link(pn, area, "IN", "derived");
             }
             for t in list(&p["stack"]) {
                 for ti in g.techs(&t, &format!("projects/{name}/stack")) {
@@ -632,16 +638,20 @@ pub fn explain(node: &str, as_json: bool) -> Result<Value, String> {
     let g = build();
     let i = resolve(&g, node)?;
     let n = &g.nodes[i];
+    let mut facts = n.facts.clone();
+    if let Some(u) = usage_all().get(&n.id) {
+        facts.push(("agent reads".into(), format!("{} (last {})", u["n"], ymd(u["last"].as_u64().unwrap_or(0)))));
+    }
     if as_json {
         let links: Vec<Value> = g.adj[i].iter().map(|&(j, ei)| {
             let e = &g.edges[ei];
             json!({"rel": e.rel, "dir": if e.a == i { "out" } else { "in" }, "how": e.how, "id": g.nodes[j].id, "label": g.nodes[j].label, "kind": g.nodes[j].kind})
         }).collect();
-        return Ok(json!({"id": n.id, "kind": n.kind, "label": n.label, "text": n.text, "facts": n.facts.iter().map(|(k, v)| json!({"k": k, "v": v})).collect::<Vec<_>>(), "src": n.src, "links": links}));
+        return Ok(json!({"id": n.id, "kind": n.kind, "label": n.label, "text": n.text, "facts": facts.iter().map(|(k, v)| json!({"k": k, "v": v})).collect::<Vec<_>>(), "src": n.src, "links": links}));
     }
     let mut o = format!("# {} [{}] id {}\n", n.label, n.kind, n.id);
     if !n.text.trim().is_empty() { o += &format!("{}\n", n.text.trim()); }
-    for (k, v) in &n.facts { o += &format!("- {k}: {v}\n"); }
+    for (k, v) in &facts { o += &format!("- {k}: {v}\n"); }
     if !n.src.is_empty() { o += &format!("stored at: {} (edit with set)\n", n.src); }
     o += &format!("\n## Connections ({})\n", g.adj[i].len());
     for c in connections(&g, i, 14) { o += &format!("- {c}\n"); }
@@ -737,7 +747,7 @@ pub fn stats() -> Value {
 pub fn export() -> Value {
     let g = build();
     json!({
-        "nodes": g.nodes.iter().enumerate().map(|(i, n)| json!({"id": n.id, "kind": n.kind, "label": n.label, "deg": g.adj[i].len()})).collect::<Vec<_>>(),
+        "nodes": g.nodes.iter().enumerate().map(|(i, n)| json!({"id": n.id, "kind": n.kind, "label": n.label, "deg": g.adj[i].len(), "local": n.facts.iter().any(|(k, _)| k == "hosting")})).collect::<Vec<_>>(),
         "edges": g.edges.iter().map(|e| json!({"a": g.nodes[e.a].id, "b": g.nodes[e.b].id, "rel": e.rel, "how": e.how})).collect::<Vec<_>>(),
     })
 }

@@ -181,6 +181,41 @@ fn fetch_file(owner: &str, repo: &str, file: &str) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).to_string())
 }
 
+const MANIFESTS: [&str; 4] = ["package.json", "requirements.txt", "Cargo.toml", "pyproject.toml"];
+const SKIP_DIRS: [&str; 14] = ["node_modules", "dist", "build", "public", "docs", "doc", "assets", "static", "test", "tests", "examples", "scripts", "vendor", "target"];
+
+/// (type, name) of everything directly inside a repo folder.
+fn list_dir(owner: &str, repo: &str, dir: &str) -> Vec<(String, String)> {
+    let path = if dir.is_empty() { format!("repos/{owner}/{repo}/contents") } else { format!("repos/{owner}/{repo}/contents/{dir}") };
+    Command::new("gh").args(["api", &path, "-q", r#".[] | .type + " " + .name"#]).output().ok().filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).lines().filter_map(|l| l.split_once(' ').map(|(t, n)| (t.to_string(), n.to_string()))).collect()).unwrap_or_default()
+}
+
+/// Technologies a repo declares: manifests at the top level plus one folder down (monorepos, src-tauri/, backend/ ...).
+fn repo_techs(owner: &str, repo: &str) -> Vec<(&'static str, &'static str)> {
+    let mut found: Vec<(&'static str, &'static str)> = vec![];
+    let mut read = |dir: &str, names: &[(String, String)]| {
+        for (t, n) in names {
+            if t == "file" && MANIFESTS.contains(&n.as_str()) {
+                let path = if dir.is_empty() { n.clone() } else { format!("{dir}/{n}") };
+                if let Some(body) = fetch_file(owner, repo, &path) {
+                    found.extend(deps_in(n, &body).iter().filter_map(|d| tech_for(d)));
+                }
+            }
+        }
+    };
+    let root = list_dir(owner, repo, "");
+    read("", &root);
+    for (t, n) in root.iter().filter(|(t, n)| t == "dir" && !n.starts_with('.') && !SKIP_DIRS.contains(&n.as_str())).take(12) {
+        let _ = t;
+        let inner = list_dir(owner, repo, n);
+        read(n, &inner);
+    }
+    found.sort_unstable();
+    found.dedup();
+    found
+}
+
 /// Names of declared dependencies in a manifest, by file type.
 fn deps_in(file: &str, body: &str) -> Vec<String> {
     match file {
@@ -193,6 +228,18 @@ fn deps_in(file: &str, body: &str) -> Vec<String> {
             if l.is_empty() || l.starts_with('#') || l.starts_with('-') { return None; }
             Some(l.split(['=', '<', '>', '~', '!', '[', ';', ' ']).next().unwrap_or("").to_lowercase())
         }).collect(),
+        "pyproject.toml" => {
+            // PEP 621 `dependencies = ["name>=1", ...]` and Poetry `[tool.poetry.dependencies] name = "^1"`
+            let (mut in_list, mut in_table) = (false, false);
+            let name = |s: &str| s.trim().trim_matches(|c| c == '"' || c == '\'' || c == ',').split(['=', '<', '>', '~', '!', '[', ';', ' ', '^']).next().unwrap_or("").to_lowercase();
+            body.lines().filter_map(|l| {
+                let l = l.trim();
+                if l.starts_with('[') && !l.starts_with("[\"") { in_table = l.contains("dependencies"); in_list = false; return None; }
+                if l.starts_with("dependencies") && l.contains('[') { in_list = !l.contains(']'); return None; }
+                if in_list { if l.starts_with(']') { in_list = false; return None; } return Some(name(l)); }
+                (in_table && l.contains('=')).then(|| name(l.split('=').next().unwrap_or("")))
+            }).filter(|n| !n.is_empty()).collect()
+        }
         _ => {
             // Cargo.toml: names on the left of `=` inside any [*dependencies] table
             let mut inside = false;
@@ -223,15 +270,7 @@ pub fn scan_stack() -> R {
     for chunk in repos.chunks(6) {
         let res: Vec<(String, Vec<(&'static str, &'static str)>)> = std::thread::scope(|sc| {
             let hs: Vec<_> = chunk.iter().map(|(n, _)| (n.clone(), sc.spawn(|| {
-                let mut t: Vec<(&'static str, &'static str)> = vec![];
-                for f in ["package.json", "requirements.txt", "Cargo.toml"] {
-                    if let Some(body) = fetch_file(&owner, n, f) {
-                        t.extend(deps_in(f, &body).iter().filter_map(|d| tech_for(d)));
-                    }
-                }
-                t.sort_unstable();
-                t.dedup();
-                t
+                repo_techs(&owner, n)
             }))).collect();
             hs.into_iter().map(|(n, h)| (n, h.join().unwrap_or_default())).collect()
         });
@@ -275,6 +314,14 @@ pub fn scan_stack() -> R {
 
     let n = entries.len();
     locked(|| {
+        // per-project detected stack, shown on each project page until the user sets one by hand
+        let mut p = load("projects");
+        for (repo, techs) in &found {
+            if let Some(e) = p.get_mut(repo) {
+                e["detected"] = json!(techs.iter().map(|(n, c)| json!({"name": n, "category": c})).collect::<Vec<_>>());
+            }
+        }
+        save("projects", &p)?;
         let mut me = load("me");
         let mut stack = me["stack"].as_array().cloned().unwrap_or_default();
         for e in entries {
@@ -288,6 +335,46 @@ pub fn scan_stack() -> R {
     })?;
     let core: Vec<String> = acc.iter().filter(|(_, a)| a.repos.len() >= 15).map(|(k, _)| k.clone()).take(10).collect();
     Ok(json!(format!("scanned {} repos, {n} technologies written to me/stack. Core: {}", found.len(), core.join(", "))))
+}
+
+/// Everything an agent needs to describe one repo truthfully: description, languages, detected stack, top-level files and the README.
+pub fn repo_context(a: &Value) -> R {
+    let name = s(a, "repo");
+    let p = load("projects");
+    let proj = p.get(name).ok_or_else(|| format!("unknown repo {name} (run sync first)"))?;
+    if !proj["url"].is_string() {
+        return Ok(json!({"name": name, "local_only": true, "project": proj,
+            "note": "Not on GitHub, so there is no README or manifest to read here. Use local_path (if set) to inspect the folder yourself, then store what you confirm with update_project."}));
+    }
+    let owner = crate::owner()?;
+    let techs = repo_techs(&owner, name);
+    let files = Command::new("gh").args(["api", &format!("repos/{owner}/{name}/contents"), "-q", ".[].name"]).output().ok()
+        .filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).lines().take(40).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+    let readme = Command::new("gh").args(["api", "-H", "Accept: application/vnd.github.raw+json", &format!("repos/{owner}/{name}/readme")]).output().ok()
+        .filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).chars().take(3500).collect::<String>()).unwrap_or_default();
+    let total: f64 = proj["langs"].as_object().into_iter().flatten().filter_map(|(_, v)| v.as_f64()).sum();
+    let langs = proj["langs"].as_object().into_iter().flatten().filter_map(|(k, v)| v.as_f64().map(|b| (k.clone(), b / total.max(1.0) * 100.0))).map(|(k, v)| format!("{k} {v:.0}%")).collect::<Vec<_>>().join(", ");
+    Ok(json!(format!(
+        "# {name}
+
+description: {}
+homepage: {}
+stars: {} · private: {} · fork: {}
+languages: {langs}
+topics: {}
+detected stack: {}
+top-level files: {files}
+current tagline: {}
+current bullets: {}
+
+## README (first 3500 chars)
+{readme}
+
+Next: write a one-line tagline and 2-3 outcome bullets using only what is shown, then call update_project {{name, tagline, bullets[], stack[]}}.",
+        s(proj, "desc"), s(proj, "homepage"), proj["stars"], proj["private"], proj["fork"],
+        arr(&proj["topics"]).iter().filter_map(|t| t.as_str()).collect::<Vec<_>>().join(", "),
+        techs.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", "),
+        s(proj, "tagline"), arr(&proj["bullets"]).iter().filter_map(|b| b.as_str()).collect::<Vec<_>>().join(" | "))))
 }
 
 // ---------------------------------------------------------------- onboarding

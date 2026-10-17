@@ -1,15 +1,18 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, DownloadCloud, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, GitCommitHorizontal, DownloadCloud, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ActivityGrid } from "@/components/kit/activity-grid";
 import { Initials } from "@/components/kit/cells";
 import { TopRepos } from "./charts";
+import { EmptyState } from "@/components/kit/empty-state";
 import { CommitGraph } from "@/components/kit/commit-graph";
 import { SpecGrid } from "@/components/kit/spec-grid";
 import { api, type Commit, type Repo } from "@/lib/hq";
 import { cn } from "@/lib/utils";
+import { useSelection, type Selection } from "@/lib/selection";
 import type { ViewProps } from "./views";
 
 type Stored = { fetched: number; nodes: Commit[] };
@@ -20,13 +23,15 @@ const rel = (iso: string) => {
   const d = (Date.now() - Date.parse(iso)) / 864e5;
   return d < 1 ? "today" : d < 2 ? "1d" : d < 60 ? `${Math.round(d)}d` : d < 700 ? `${Math.round(d / 30)}mo` : `${Math.round(d / 365)}y`;
 };
-const openIn = (repos: Repo[]) => (c: Commit) => {
+/** Selecting a commit shows its files in the inspector rail, which also links to GitHub. */
+const openIn = (repos: Repo[], select: (s: Selection) => void) => (c: Commit) => {
   const r = repos.find((x) => x.name === c.repo);
-  if (r?.url) window.open(`${r.url}/commit/${c.sha}`, "_blank");
+  select({ kind: "commit", repo: c.repo ?? "", sha: c.sha, msg: c.msg, url: r?.url ? `${r.url}/commit/${c.sha}` : undefined });
 };
 
 /** One repo's history with the branch graph. Loaded from the cache; Refresh pulls again from GitHub. */
 export function RepoCommits({ repo, repos }: { repo: string; repos: Repo[] }) {
+  const { setSel } = useSelection();
   const [data, setData] = useState<Stored | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -50,7 +55,7 @@ export function RepoCommits({ repo, repos }: { repo: string; repos: Repo[] }) {
         </Button>
       </div>
       <div className="border-t border-border">
-        {data ? <CommitGraph commits={nodes} onOpen={openIn(repos)} /> : <div className="py-16 text-center text-sm text-muted-foreground">Loading from GitHub…</div>}
+        {data ? <CommitGraph commits={nodes} onOpen={openIn(repos, setSel)} /> : <div className="py-16 text-center text-sm text-muted-foreground">Loading from GitHub…</div>}
       </div>
     </div>
   );
@@ -75,8 +80,7 @@ function RepoPicker({ value, repos, total, onChange }: { value: string; repos: {
           <div className="absolute inset-x-0 top-11 z-30 overflow-hidden rounded-xl border border-border bg-popover shadow-2xl">
             <div className="relative border-b border-border p-2">
               <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter repos…"
-                className="h-8 w-full rounded-md bg-card/60 pl-8 pr-2 text-[13px] outline-none placeholder:text-muted-foreground" />
+              <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter repos…" className="h-8 pl-8 text-[13px] md:text-[13px]" />
             </div>
             <div className="max-h-72 overflow-y-auto py-1">
               <button onClick={() => pick("")} className={cn("flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] hover:bg-accent", !value && "bg-accent/50")}>
@@ -103,6 +107,7 @@ function RepoPicker({ value, repos, total, onChange }: { value: string; repos: {
  * merged feed (grouped by day) or the selected repo's branch graph.
  */
 export function Commits({ d }: ViewProps) {
+  const { setSel } = useSelection();
   const [repo, setRepo] = useState("");
   const [feed, setFeed] = useState<Commit[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -146,12 +151,9 @@ export function Commits({ d }: ViewProps) {
 
   if (feed && !feed.length) {
     return (
-      <div className="grid place-items-center py-32 text-center">
-        <div>
-          <p className="text-sm text-muted-foreground">No commits cached yet.</p>
-          <Button className="mt-4" disabled={busy} onClick={fetchAll}><DownloadCloud className="size-4" />{busy ? "Fetching every repo…" : "Fetch all repos"}</Button>
-        </div>
-      </div>
+      <div className="p-8"><EmptyState icon={GitCommitHorizontal} title="No commits cached yet" hint="Fetch the history of your repos once; after that it is stored on this computer.">
+        <Button disabled={busy} onClick={fetchAll}><DownloadCloud className="size-4" />{busy ? "Fetching every repo…" : "Fetch all repos"}</Button>
+      </EmptyState></div>
     );
   }
 
@@ -180,7 +182,7 @@ export function Commits({ d }: ViewProps) {
         </div>
         <div className="self-stretch px-5 py-4">
           <div className="mb-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">Most active, last 30 days</div>
-          <TopRepos items={stats.top} />
+          <TopRepos items={stats.top} loading={!feed} />
         </div>
       </div>
 
@@ -188,8 +190,7 @@ export function Commits({ d }: ViewProps) {
         <aside className="hidden border-r border-border @2xl:block">
           <div className="relative border-b border-border px-3 py-2">
             <Search className="pointer-events-none absolute left-5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter repos…"
-              className="h-8 w-full rounded-md border border-border bg-card/40 pl-8 pr-2 text-[13px] outline-none placeholder:text-muted-foreground focus:border-brand/40" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter repos…" className="h-8 pl-8 text-[13px] md:text-[13px]" />
           </div>
           <div className="sticky top-9 max-h-[70vh] overflow-y-auto">
             <Row name="__all" count={`${stats.per.size} repos`} active={!repo} />
@@ -210,7 +211,7 @@ export function Commits({ d }: ViewProps) {
                   <DownloadCloud className={`size-3.5 ${busy ? "animate-pulse" : ""}`} />{busy ? "Fetching every repo…" : "Fetch all repos"}
                 </Button>
               </div>
-              <CommitGraph commits={(feed ?? []).slice(0, 200)} graph={false} showRepo groupDays onOpen={openIn(d.repos)} />
+              <CommitGraph commits={(feed ?? []).slice(0, 200)} graph={false} showRepo groupDays onOpen={openIn(d.repos, setSel)} />
             </>
           )}
         </section>

@@ -6,7 +6,10 @@ import { Section } from "@/components/kit/section";
 import { Badge } from "@/components/ui/badge";
 import { TechBadge } from "@/components/kit/tech-badge";
 import { SpecGrid } from "@/components/kit/spec-grid";
-import { LANG_COLOR, ago } from "@/lib/hq";
+import { StageChip } from "@/components/kit/cells";
+import { LANG_COLOR, ago, fileUrl } from "@/lib/hq";
+import { isLocal } from "@/lib/hq";
+import { ProfileBanner } from "./banner";
 import type { ViewProps } from "./views";
 
 type Tone = "yellow" | "green" | "blue" | "gray";
@@ -34,14 +37,13 @@ export function Profile({ d, go }: ViewProps) {
 
   return (
     <div className="pb-16">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={id.banner || "/banner.svg"} alt="" className="h-52 w-full object-cover" />
+      <ProfileBanner src={id.banner} />
 
       <div className="px-8">
-        <div className="-mt-14 flex items-end justify-between">
+        <div className="relative z-10 -mt-14 flex items-end justify-between">
           {id.avatar ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={id.avatar} alt="" className="size-28 rounded-full border-4 border-background object-cover" />
+            <img src={fileUrl(id.avatar)} alt="" className="size-28 rounded-full border-4 border-background object-cover" />
           ) : (
             <div className="relative size-28 rounded-full border-4 border-background"
               style={{ background: "radial-gradient(circle at 35% 28%, #fff1bd, #f0a24b 55%, #8f4a14)", boxShadow: "0 0 50px oklch(0.8 0.15 75 / 25%)" }}>
@@ -50,6 +52,7 @@ export function Profile({ d, go }: ViewProps) {
               <i className="absolute left-1/2 top-[62%] h-[4px] w-[9px] -translate-x-1/2 rounded-full bg-[#2a1708]" />
             </div>
           )}
+          <button onClick={() => go("files")} className="mb-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">Change photo</button>
         </div>
 
         <h1 className="mt-4 text-2xl font-bold tracking-tight">{id.name}</h1>
@@ -93,19 +96,27 @@ export function Profile({ d, go }: ViewProps) {
 
       <div>
         <Section icon={Briefcase} title="Pinned projects" count={pinned.length}>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {pinned.map((r) => (
-              <button key={r.name} onClick={() => go("project", r.name)} className="flex flex-col rounded-xl border border-border bg-card/50 p-5 text-left transition hover:border-brand/40 hover:bg-card">
-                <div className="flex items-center gap-2">
-                  <i className="size-2.5 rounded-full" style={{ background: LANG_COLOR[r.primary ?? ""] ?? "#71717a" }} />
-                  <span className="font-medium">{r.name}</span>
-                  <span className="ml-auto text-xs text-muted-foreground">{ago(r.pushed)}</span>
-                </div>
-                <p className="mt-2 line-clamp-2 flex-1 text-sm leading-relaxed text-muted-foreground">{r.tagline || r.desc}</p>
-                <div className="mt-4 flex flex-wrap gap-1.5">{(r.stack ?? []).slice(0, 4).map((s) => <TechBadge key={s} name={s} />)}</div>
-              </button>
-            ))}
-          </div>
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+            {pinned.map((r) => {
+              const techs = [...new Set([...(r.stack ?? []), ...(r.detected ?? []).map((x) => x.name)])];
+              return (
+                <li key={r.name}>
+                  <button onClick={() => go("project", r.name)} className="flex h-10 w-full items-center gap-3 px-3 text-left transition hover:bg-muted/30">
+                    <i className="size-2.5 shrink-0 rounded-full" title={r.primary ?? ""} style={{ background: LANG_COLOR[r.primary ?? ""] ?? "#71717a" }} />
+                    <span className="shrink-0 text-[13px] font-medium">{r.name}</span>
+                    <StageChip live={r.live} local={isLocal(r)} className="h-5 text-[11px]" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{r.tagline || r.desc}</span>
+                    <div className="hidden shrink-0 items-center gap-1 lg:flex">
+                      {techs.slice(0, 2).map((s) => <TechBadge key={s} name={s} />)}
+                      {techs.length > 2 && <span className="text-[11px] text-muted-foreground">+{techs.length - 2}</span>}
+                    </div>
+                    <span className="w-8 shrink-0 text-right text-[11px] text-muted-foreground">{ago(r.pushed)}</span>
+                  </button>
+                </li>
+              );
+            })}
+            {!pinned.length && <li className="px-3 py-4 text-sm text-muted-foreground">No pinned projects yet. Pin the ones that belong on your resume from the Projects page.</li>}
+          </ul>
         </Section>
       </div>
 

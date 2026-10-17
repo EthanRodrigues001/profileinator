@@ -1,4 +1,5 @@
 "use client";
+import { Textarea } from "@/components/ui/textarea";
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Plus, X } from "lucide-react";
 import { toast } from "sonner";
@@ -34,8 +35,7 @@ function Field({ label, value, onSave, multiline, placeholder }: { label: string
     <div className="grid gap-2 border-b border-border/60 px-4 py-3 @xl:grid-cols-[11rem_1fr] @xl:items-start">
       <label className="pt-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{label}</label>
       {multiline ? (
-        <textarea value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} rows={4} placeholder={placeholder}
-          className="w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm leading-relaxed outline-none transition focus:border-brand/50" />
+        <Textarea value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} rows={4} placeholder={placeholder} className="min-h-24 resize-y leading-relaxed" />
       ) : (
         <Input value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} placeholder={placeholder} />
       )}
@@ -225,5 +225,5 @@ function AddInline({ onAdd }: { onAdd: (v: string) => void }) {
   const [v, setV] = useState("");
   const done = () => { if (v.trim()) onAdd(v.trim()); setV(""); setOn(false); };
   if (!on) return <button onClick={() => setOn(true)} className="inline-flex h-6 items-center gap-1 rounded-md border border-dashed border-border px-2 text-xs text-muted-foreground transition hover:text-foreground"><Plus className="size-3" />Add</button>;
-  return <input autoFocus value={v} onChange={(e) => setV(e.target.value)} onBlur={done} onKeyDown={(e) => (e.key === "Enter" ? done() : e.key === "Escape" && setOn(false))} className="h-6 w-36 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:border-brand/50" />;
+  return <Input autoFocus value={v} onChange={(e) => setV(e.target.value)} onBlur={done} onKeyDown={(e) => (e.key === "Enter" ? done() : e.key === "Escape" && setOn(false))} className="h-6 w-36 px-2 text-xs md:text-xs" />;
 }

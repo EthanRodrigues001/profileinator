@@ -1,6 +1,6 @@
-import { Activity, Brain, FileText, FolderGit2, GitCommitHorizontal, Home, Link2, Network, Plug, UserRound, type LucideIcon } from "lucide-react";
+import { Activity, Brain, FileText, FolderGit2, FolderOpen, GitCommitHorizontal, Home, Link2, Network, Plug, UserRound, type LucideIcon } from "lucide-react";
 
-export type TabKind = "home" | "profile" | "repos" | "commits" | "graph" | "links" | "context" | "integrations" | "resume" | "activity" | "project";
+export type TabKind = "home" | "profile" | "repos" | "commits" | "graph" | "links" | "context" | "integrations" | "resume" | "files" | "activity" | "project";
 export type Tab = { id: string; kind: TabKind; title: string; arg?: string; dot?: boolean };
 
 export const KINDS: Record<Exclude<TabKind, "project">, { title: string; icon: LucideIcon }> = {
@@ -13,6 +13,7 @@ export const KINDS: Record<Exclude<TabKind, "project">, { title: string; icon: L
   context: { title: "Context", icon: Brain },
   integrations: { title: "Integrations", icon: Plug },
   resume: { title: "Resume", icon: FileText },
+  files: { title: "Files", icon: FolderOpen },
   activity: { title: "Activity", icon: Activity },
 };
 

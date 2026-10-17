@@ -30,6 +30,8 @@ export type Me = {
 export type Repo = {
   name: string; pinned: boolean; private: boolean; fork: boolean; stars: number; pushed: string;
   primary: string | null; desc: string | null; tagline?: string; summary?: string; category?: string; visibility?: string; status?: string; when?: string; local_path?: string; note?: string; stack?: string[]; bullets?: string[]; created?: string; url?: string; topics?: string[]; homepage: string | null; live?: string;
+  impact?: { label: string; value: string; note?: string }[]; cover?: string; extras?: { fetched: number; issues: number; prs: number; release: { tag: string; date: string; url: string } | null; ci: { ok: boolean | null; at: string }[] } | null;
+  detected?: { name: string; category: string }[] | null; license?: string | null; branch?: string | null; forks?: number; size_kb?: number;
   langs: Record<string, number>;
 };
 export type Commit = {
@@ -37,7 +39,7 @@ export type Commit = {
   add: number; del: number; files: number | null; parents: string[]; repo?: string;
 };
 export type LinkState = { code: number; status: "ok" | "dead" | "down" | "gated"; ms: number; checked: string };
-export type LogEntry = { ts: number; date: string; kind: string; text: string };
+export type LogEntry = { ts: number; date: string; kind: string; text: string; src?: "app" | "agent" | "cli" };
 export type Integration = { id: string; status: string; note: string };
 
 export async function api<T = unknown>(op: string, args: object = {}): Promise<T> {
@@ -57,3 +59,29 @@ export const ago = (iso?: string | null) => {
   const d = (Date.now() - Date.parse(iso)) / 864e5;
   return d < 1 ? "today" : d < 60 ? `${Math.round(d)}d` : d < 700 ? `${Math.round(d / 30)}mo` : `${Math.round(d / 365)}y`;
 };
+
+export type FileLink = { type: "project" | "experience" | "education" | "achievement" | "me"; ref: string };
+export type FileEntry = {
+  id: string; name: string; ext: string; mime: string; size: number; kind: "avatar" | "resume" | "screenshot" | "other";
+  added: number; note?: string; label?: string; current?: boolean; links: FileLink[];
+};
+
+/** Stored files are served by hq itself. A value that already looks like a URL is passed through. */
+export const fileUrl = (id?: string | null) => (!id ? "" : /^(https?:|\/|data:)/.test(id) ? id : `/files/${id}`);
+
+export const bytes = (n: number) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n > 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
+
+/** Upload one file into the local store. */
+export async function uploadFile(file: File, opts: { kind: FileEntry["kind"]; link?: FileLink; label?: string; note?: string }): Promise<FileEntry> {
+  const q = new URLSearchParams({ name: file.name, kind: opts.kind });
+  if (opts.link) { q.set("link_type", opts.link.type); q.set("link_ref", opts.link.ref); }
+  if (opts.label) q.set("label", opts.label);
+  if (opts.note) q.set("note", opts.note);
+  const r = await fetch(`/files/upload?${q}`, { method: "POST", headers: { "x-hq": "1" }, body: file });
+  const j = await r.json();
+  if (j.err) throw new Error(j.err);
+  return j.ok as FileEntry;
+}
+
+/** A project that lives only on this computer (added by you or an agent), with no GitHub repo behind it. */
+export const isLocal = (r: Repo) => !r.url;

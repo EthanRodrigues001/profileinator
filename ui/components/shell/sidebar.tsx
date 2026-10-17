@@ -3,6 +3,7 @@ import { ArrowUpCircle, Loader2, RefreshCw } from "lucide-react";
 import { useUpdate } from "@/components/hq/update";
 import { ago, LANG_COLOR, type Repo } from "@/lib/hq";
 import { STAGE_LABEL, StatusIcon, stageState } from "@/components/kit/status-icon";
+import { Tip } from "@/components/kit/tip";
 import { KINDS, type TabKind } from "./nav";
 
 type Props = {
@@ -14,7 +15,7 @@ type Props = {
 };
 
 const WORKSPACE: TabKind[] = ["home", "profile", "repos", "commits", "graph", "links", "context"];
-const RESOURCES: TabKind[] = ["resume", "activity", "integrations"];
+const RESOURCES: TabKind[] = ["resume", "files", "activity", "integrations"];
 
 function Item({ kind, active, badge, onOpen }: { kind: Exclude<TabKind, "project">; active: boolean; badge?: React.ReactNode; onOpen: Props["onOpen"] }) {
   const { icon: Icon, title } = KINDS[kind];
@@ -39,23 +40,26 @@ const Heading = ({ children, right }: { children: React.ReactNode; right?: React
   </div>
 );
 
-/** Left rail: workspace pages, resources, and the pinned projects with their live status. */
+/** Icon-only update control: a dot marks a newer release; the tooltip says what a click does. */
 function UpdateButton() {
   const u = useUpdate();
   const newer = !!u.info?.newer;
+  const busy = u.checking || u.installing;
   return (
-    <button onClick={() => (newer ? u.install() : u.check(true))} disabled={u.checking || u.installing}
-      title={newer ? `Update to ${u.info?.latest}` : "Check for updates"}
-      className={`ml-auto inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] transition ${newer ? "border-brand/40 bg-brand/15 text-foreground hover:bg-brand/25" : "border-border hover:bg-accent hover:text-foreground"}`}>
-      {u.checking || u.installing ? <Loader2 className="size-3 animate-spin" /> : newer ? <ArrowUpCircle className="size-3 text-brand" /> : <RefreshCw className="size-3" />}
-      {u.installing ? "Updating" : newer ? "Update" : "Check"}
-    </button>
+    <Tip side="top" content={u.installing ? "Updating…" : newer ? `Update to ${u.info?.latest}` : "Check for updates"}>
+      <button onClick={() => (newer ? u.install() : u.check(true))} disabled={busy} aria-label={newer ? "Update" : "Check for updates"}
+        className={`relative grid size-7 place-items-center rounded-lg transition ${newer ? "bg-brand/15 text-brand hover:bg-brand/25" : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"}`}>
+        {busy ? <Loader2 className="size-4 animate-spin" /> : newer ? <ArrowUpCircle className="size-4" /> : <RefreshCw className="size-4" />}
+        {newer && !busy && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-brand" />}
+      </button>
+    </Tip>
   );
 }
 
+/** Left rail: workspace pages, resources, pinned projects (icon status with tooltip) and sync/update state. */
 export function Sidebar({ active, pinned, total, synced, onOpen }: Props) {
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-2.5 py-3">
+    <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-transparent px-2.5 py-3">
       <Heading>Workspace</Heading>
       <nav className="space-y-0.5">
         {WORKSPACE.map((k) => (
@@ -72,24 +76,25 @@ export function Sidebar({ active, pinned, total, synced, onOpen }: Props) {
           <button
             key={r.name}
             onClick={() => onOpen("project", r.name)}
-            className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition ${
-              active === `project:${r.name}` ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground/90 hover:bg-sidebar-accent/50"
+            className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] transition ${
+              active === `project:${r.name}` ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
             }`}
           >
-            <i className="size-3.5 shrink-0 rounded-full" style={{ background: `radial-gradient(circle at 35% 30%, #fff8, ${LANG_COLOR[r.primary ?? ""] ?? "#71717a"})` }} />
+            <i className="size-3.5 shrink-0 rounded-full opacity-80" style={{ background: `radial-gradient(circle at 35% 30%, #fff8, ${LANG_COLOR[r.primary ?? ""] ?? "#71717a"})` }} />
             <span className="truncate">{r.name}</span>
-            <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-              <StatusIcon state={stageState(r.live)} size={13} />
-              {r.live ? STAGE_LABEL[r.live] ?? r.live : "Repo"}
-            </span>
+            <Tip side="right" className="ml-auto inline-flex" content={r.live ? STAGE_LABEL[r.live] ?? r.live : "Repo only (no live site)"}>
+              <StatusIcon state={stageState(r.live)} size={14} />
+            </Tip>
           </button>
         ))}
         {!pinned.length && <p className="px-2.5 text-xs text-muted-foreground">Star projects to pin them here.</p>}
       </div>
-      <div className="mt-3 flex items-center gap-2 px-2.5 text-xs text-muted-foreground">
+      <div className="mt-3 flex items-center gap-2 border-t border-sidebar-border pl-2.5 pt-2.5 text-xs text-muted-foreground">
         <StatusIcon state={synced ? "done" : "backlog"} size={13} />
-        {synced ? `Synced ${ago(new Date(synced * 1000).toISOString())}${ago(new Date(synced * 1000).toISOString()) === "today" ? "" : " ago"}` : "Not synced yet"}
-        <UpdateButton />
+        <Tip side="top" content={synced ? new Date(synced * 1000).toLocaleString() : "Run Sync GitHub to import your repos"}>
+          <span>{synced ? `Synced ${ago(new Date(synced * 1000).toISOString())}${ago(new Date(synced * 1000).toISOString()) === "today" ? "" : " ago"}` : "Not synced yet"}</span>
+        </Tip>
+        <span className="ml-auto"><UpdateButton /></span>
       </div>
     </aside>
   );

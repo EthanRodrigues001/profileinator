@@ -498,13 +498,16 @@ type TooltipProps = {
   variant?: TooltipVariant; // visual style of the tooltip surface
   roundness?: TooltipRoundness; // border-radius of the tooltip
   defaultIndex?: number; // data index shown by default with no hover
+  labelFormatter?: (label: unknown, payload: readonly unknown[]) => React.ReactNode; // heading above the rows
+  hideZero?: boolean; // skip rows whose value is 0
+  valueFormat?: (value: number, item: unknown) => string; // row value as text
 };
 
 /**
  * The hover tooltip. Reads the chart's selection from context so its content
  * dims unselected series. Hidden automatically while the chart is loading.
  */
-function Tooltip({ variant, roundness, defaultIndex }: TooltipProps) {
+function Tooltip({ variant, roundness, defaultIndex, labelFormatter, hideZero, valueFormat }: TooltipProps) {
   const { isLoading, selectedDataKey } = useBarChart();
 
   if (isLoading) return null;
@@ -514,7 +517,7 @@ function Tooltip({ variant, roundness, defaultIndex }: TooltipProps) {
       cursor={false}
       defaultIndex={defaultIndex}
       content={
-        <ChartTooltipContent selected={selectedDataKey} roundness={roundness} variant={variant} />
+        <ChartTooltipContent selected={selectedDataKey} roundness={roundness} variant={variant} labelFormatter={labelFormatter as never} hideZero={hideZero} valueFormat={valueFormat} />
       }
     />
   );

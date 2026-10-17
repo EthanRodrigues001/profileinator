@@ -84,3 +84,21 @@ export function UpdateCard() {
     </div>
   );
 }
+
+/** Updates tab: current and latest version, release notes, check and install. */
+export function UpdatesPanel() {
+  const u = useUpdate();
+  return (
+    <div className="space-y-4 p-4">
+      <UpdateCard />
+      {u.info?.newer && (
+        <div className="rounded-xl border border-border p-4">
+          <p className="text-sm font-medium">What&apos;s new in {u.info.latest}</p>
+          <pre className="mt-2 whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground">{u.info.notes?.trim() || "No release notes."}</pre>
+          <a className="mt-3 inline-block text-xs underline" href={u.info.url} target="_blank" rel="noreferrer">View release on GitHub</a>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">{u.desktop ? "Updates are signed and verified before they install." : "You are using the browser build: updates are downloaded from the release page."} The app checks for updates on launch and every 6 hours.</p>
+    </div>
+  );
+}

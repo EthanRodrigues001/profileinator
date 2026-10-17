@@ -299,12 +299,13 @@ type TooltipProps = {
   variant?: TooltipVariant; // visual style of the tooltip surface
   roundness?: TooltipRoundness; // border-radius of the tooltip
   defaultIndex?: number; // sector index shown by default with no hover
+  valueFormat?: (value: number, item: unknown) => string; // row value as text
 };
 
 /**
  * The hover tooltip. Hidden automatically while the chart is loading.
  */
-function Tooltip({ variant, roundness, defaultIndex }: TooltipProps) {
+function Tooltip({ variant, roundness, defaultIndex, valueFormat }: TooltipProps) {
   const { isLoading, nameKey } = usePieChart();
 
   if (isLoading) return null;
@@ -313,7 +314,7 @@ function Tooltip({ variant, roundness, defaultIndex }: TooltipProps) {
     <ChartTooltip
       defaultIndex={defaultIndex}
       content={
-        <ChartTooltipContent nameKey={nameKey} hideLabel roundness={roundness} variant={variant} />
+        <ChartTooltipContent nameKey={nameKey} hideLabel roundness={roundness} variant={variant} valueFormat={valueFormat} />
       }
     />
   );

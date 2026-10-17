@@ -5,12 +5,14 @@ import { Initials, RowAction, StageChip } from "@/components/kit/cells";
 import { StatusIcon, readyState } from "@/components/kit/status-icon";
 import { DataTable, type Column, type FilterDef, type Groups } from "@/components/kit/data-table";
 import { LANG_COLOR, ago, type Repo } from "@/lib/hq";
+import { isLocal } from "@/lib/hq";
+import { useSelection } from "@/lib/selection";
 import type { ViewProps } from "./views";
 
 /** The five things a project needs before it earns a place on a resume. One point each. */
 export const checks = (r: Repo) => [
   { label: "Tagline", ok: !!r.tagline, fix: "one line a recruiter should read" },
-  { label: "Stack listed", ok: !!r.stack?.length, fix: "technologies used" },
+  { label: "Stack listed", ok: !!(r.stack?.length || r.detected?.length), fix: "technologies used (Sync GitHub detects them)" },
   { label: "Resume bullets", ok: !!r.bullets?.length, fix: "what you built, with outcomes" },
   { label: "Live site responds", ok: !!(r.homepage && r.live === "ok"), fix: "a working URL, link check passing" },
   { label: "Description", ok: !!(r.desc || r.tagline), fix: "GitHub description or tagline" },
@@ -40,7 +42,7 @@ function Meter({ r }: { r: Repo }) {
 }
 
 const GROUPS: Groups<Repo> = {
-  by: (r) => (r.pinned ? "Pinned" : r.category ?? (r.live === "ok" ? "Live" : r.fork ? "Forks" : "Repos")),
+  by: (r) => (r.pinned ? "Pinned" : r.category ?? (isLocal(r) ? "Local-only" : r.live === "ok" ? "Live" : r.fork ? "Forks" : "Repos")),
   order: ["Pinned", "Showcase", "Hackathon", "Local-only", "Live", "Repos", "Forks", "Older", "Private"],
   // Pinned stays open and the rest fold away; with nothing pinned yet, everything stays open.
   collapsedByDefault: (rows) => (rows.some((r) => r.pinned) ? ["Showcase", "Hackathon", "Local-only", "Live", "Repos", "Forks", "Older", "Private"] : []),
@@ -59,6 +61,7 @@ const GROUPS: Groups<Repo> = {
 
 /** Projects as a dense grouped table: pinned first, then live sites, then plain repos. */
 export function ProjectsTable({ d, run, go }: ViewProps) {
+  const { sel, setSel } = useSelection();
   const langs = [...new Set(d.repos.map((r) => r.primary).filter(Boolean))].sort() as string[];
 
   const columns: Column<Repo>[] = [
@@ -74,7 +77,7 @@ export function ProjectsTable({ d, run, go }: ViewProps) {
     { key: "ready", header: "Ready", hint: "Resume readiness: tagline, stack, bullets, live site, description. Hover a row's bars for details.", hide: "2xl", sort: readiness, cell: (r) => <Meter r={r} /> },
     {
       key: "stage", header: "Stage", sort: (r) => r.live ?? "z",
-      cell: (r) => <StageChip live={r.live} />,
+      cell: (r) => <StageChip live={r.live} local={isLocal(r)} />,
     },
     {
       key: "pinned", header: "Pinned", sort: (r) => (r.pinned ? 1 : 0),
@@ -88,7 +91,7 @@ export function ProjectsTable({ d, run, go }: ViewProps) {
   const filters: FilterDef<Repo>[] = [
     { key: "lang", label: "Language", options: langs, match: (r, v) => r.primary === v },
     { key: "vis", label: "Visibility", options: ["Public", "Private"], match: (r, v) => (v === "Private") === !!r.private },
-    { key: "stage", label: "Stage", options: ["Live", "Repo only"], match: (r, v) => (v === "Live") === (r.live === "ok") },
+    { key: "stage", label: "Stage", options: ["Live", "Repo only", "Local only"], match: (r, v) => (v === "Live" ? r.live === "ok" : v === "Local only" ? isLocal(r) : !isLocal(r) && r.live !== "ok") },
     { key: "ready", label: "Readiness", options: ["Ready (3+)", "Needs work"], match: (r, v) => (v === "Needs work") === (readiness(r) < 3) },
   ];
 
@@ -102,7 +105,8 @@ export function ProjectsTable({ d, run, go }: ViewProps) {
       groups={GROUPS}
       rowKey={(r) => r.name}
       searchText={(r) => `${r.name} ${r.desc ?? ""} ${r.tagline ?? ""} ${r.summary ?? ""} ${r.category ?? ""} ${r.primary ?? ""} ${(r.stack ?? []).join(" ")}`}
-      onRowClick={(r) => go("project", r.name)}
+      onRowClick={(r) => setSel({ kind: "project", name: r.name })}
+      selectedKey={sel?.kind === "project" ? sel.name : undefined}
     />
   );
 }

@@ -12,21 +12,37 @@ import { Profile } from "@/components/hq/profile";
 import { ProjectsTable } from "@/components/hq/projects-table";
 import { Project } from "@/components/hq/project";
 import { ContextPage } from "@/components/hq/context";
-import { ActivityLog, Integrations, Links, Resume, type ViewProps } from "@/components/hq/views";
-import { RightPanel } from "@/components/shell/rightpanel";
+import type { ViewProps } from "@/components/hq/views";
+import { ActivityLog } from "@/components/hq/activity";
+import { Links } from "@/components/hq/links";
+import { Resume } from "@/components/hq/resume";
+import { Integrations } from "@/components/hq/integrations";
+import { Files } from "@/components/hq/files";
+import { LinkGuard } from "@/components/hq/link-guard";
+import { NativeMenuGuard } from "@/components/shell/native-menu";
+import { Inspector, hasRail } from "@/components/shell/inspector";
+import { SelectionProvider } from "@/lib/selection";
 import { Sidebar } from "@/components/shell/sidebar";
 import { TabBar, type CloseMode } from "@/components/shell/tabbar";
 import { Topbar } from "@/components/shell/topbar";
+import { SearchPalette } from "@/components/shell/search";
 import { tabId, tabTitle, type Tab, type TabKind } from "@/components/shell/nav";
 
 const HOME: Tab = { id: "home", kind: "home", title: "Home" };
 
 export default function App() {
+  return <SelectionProvider><Shell /></SelectionProvider>;
+}
+
+function Shell() {
   const { data, error, busy, run, reload } = useHQ();
   const [onboard, setOnboard] = useState<boolean | null>(null);
   const [tabs, setTabs] = useState<Tab[]>([HOME]);
   const [active, setActive] = useState("home");
   const [rail, setRail] = useState(true);
+  const [inspector, setInspector] = useState(true);
+  useEffect(() => { try { setInspector(localStorage.getItem("hq-inspector") !== "off"); } catch { /* storage blocked */ } }, []);
+  const toggleInspector = () => setInspector((v) => { try { localStorage.setItem("hq-inspector", v ? "off" : "on"); } catch { /* storage blocked */ } return !v; });
 
   // first load only: an empty profile (no name, no repos) starts on the welcome screen
   useEffect(() => {
@@ -61,26 +77,29 @@ export default function App() {
       case "repos": return <ProjectsTable {...props} />;
       case "links": return <Links {...props} />;
       case "context": return <ContextPage {...props} />;
-      case "integrations": return <Integrations />;
-      case "resume": return <Resume />;
+      case "integrations": return <Integrations {...props} />;
+      case "resume": return <Resume {...props} />;
+      case "files": return <Files {...props} reload={reload} />;
       case "activity": return <ActivityLog {...props} />;
       case "project": return <Project {...props} arg={tab.arg!} />;
     }
   };
 
   if (data && onboard === null) return null; // decide welcome vs workspace before painting
-  if (onboard) return <Onboarding onDone={() => { setOnboard(false); reload(); }} />;
+  if (onboard) return <><LinkGuard /><NativeMenuGuard /><Onboarding onDone={() => { setOnboard(false); reload(); }} /></>;
 
   return (
     <div className="flex h-screen flex-col">
+      <LinkGuard />
+      <NativeMenuGuard />
       <Topbar
         workspace={data?.me.identity.name?.split(" ")[0]?.toLowerCase() || "me"}
         page={tab.title}
-        repos={data?.repos ?? []}
         busy={busy}
+        search={<SearchPalette d={data} go={open} run={run} />}
         onToggleSidebar={() => setRail((r) => !r)}
-        onOpenProject={(n) => open("project", n)}
         onSync={() => run("sync", "GitHub sync")}
+        rail={hasRail(tab.kind) ? { open: inspector, toggle: toggleInspector } : undefined}
       />
       <UpdateBanner />
       <div className="flex min-h-0 flex-1">
@@ -93,7 +112,7 @@ export default function App() {
             <ErrorBoundary key={tab.id}>{body()}</ErrorBoundary>
           </div>
         </main>
-        {data && <RightPanel d={data} onOpen={open} />}
+        {data && inspector && hasRail(tab.kind) && <Inspector d={data} tab={tab} go={open} run={run} reload={reload} />}
       </div>
     </div>
   );

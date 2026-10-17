@@ -1,6 +1,6 @@
 [package]
 name = "hq"
-version = "0.1.0"
+version = "0.1.5"
 edition = "2021"
 description = "Profile HQ: one local source of truth for a developer profile, exposed as CLI, MCP server and desktop UI"
 

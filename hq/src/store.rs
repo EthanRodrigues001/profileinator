@@ -57,10 +57,62 @@ pub fn ymd(secs: u64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     format!("{:04}-{:02}-{:02}", yoe + era * 400 + (m <= 2) as i64, m, d)
 }
+thread_local! { static SOURCE: Cell<&'static str> = const { Cell::new("cli") }; }
+/// Who is making changes on this thread: "app" (the dashboard), "agent" (MCP) or "cli". Recorded in the activity log.
+pub fn set_source(src: &'static str) {
+    SOURCE.with(|c| c.set(src));
+}
+pub fn source() -> &'static str {
+    SOURCE.with(|c| c.get())
+}
+
+/// Ledger of what agents read, kept in its own small file (usage.json) so reads never rewrite the whole profile.
+/// Shape: {"<key>": {"n": reads, "last": unix seconds, "label": "..."}}. Keys are graph node ids ("tech:nextjs"),
+/// "path:<profile path>", "ask:<question>", or a tool name such as "brief".
+fn usage_file() -> PathBuf {
+    dir().join("usage.json")
+}
+pub fn usage_all() -> Value {
+    std::fs::read_to_string(usage_file()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(json!({}))
+}
+pub fn usage_bump(key: &str, label: &str) {
+    if key.is_empty() { return; }
+    locked(|| {
+        let mut u = usage_all();
+        let e = &mut u[key];
+        let n = e["n"].as_u64().unwrap_or(0) + 1;
+        *e = json!({"n": n, "last": now(), "label": label});
+        // keep the ledger small: drop the least-read, oldest entries past 600
+        if let Some(m) = u.as_object_mut() {
+            if m.len() > 600 {
+                let mut v: Vec<(String, u64, u64)> = m.iter().map(|(k, x)| (k.clone(), x["n"].as_u64().unwrap_or(0), x["last"].as_u64().unwrap_or(0))).collect();
+                v.sort_by(|a, b| a.1.cmp(&b.1).then(a.2.cmp(&b.2)));
+                for (k, _, _) in v.into_iter().take(100) { m.remove(&k); }
+            }
+        }
+        let _ = std::fs::create_dir_all(dir());
+        let tmp = dir().join("usage.tmp");
+        if std::fs::write(&tmp, serde_json::to_string(&u).unwrap_or_default()).is_ok() {
+            let _ = std::fs::rename(tmp, usage_file());
+        }
+    });
+}
+
+/// Append one link-check result to that URL's history (last 10 kept).
+pub fn link_history_push(url: &str, result: &Value) {
+    let mut st = load("state");
+    if !st["link_history"].is_object() { st["link_history"] = json!({}); }
+    let mut h = st["link_history"][url].as_array().cloned().unwrap_or_default();
+    h.push(json!({"at": now(), "status": result["status"], "code": result["code"], "ms": result["ms"]}));
+    if h.len() > 10 { h.drain(..h.len() - 10); }
+    st["link_history"][url] = json!(h);
+    let _ = save("state", &st);
+}
+
 pub fn log(kind: &str, text: &str) {
     locked(|| {
         let mut l = read_log();
-        l.push(json!({"ts": now(), "date": ymd(now()), "kind": kind, "text": text}));
+        l.push(json!({"ts": now(), "date": ymd(now()), "kind": kind, "text": text, "src": SOURCE.with(|c| c.get())}));
         let _ = put("log", json!(l));
     });
 }

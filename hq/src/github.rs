@@ -1,7 +1,7 @@
 //! First-run GitHub step: detect an existing `gh` login, or start the browser sign-in, then pull repos and the tech stack.
 use crate::store::*;
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
@@ -36,6 +36,10 @@ pub fn status() -> R {
         out["login"] = u["login"].clone();
         out["name"] = u["name"].clone();
         out["avatar"] = u["avatar_url"].clone();
+        for (k, f) in [("bio", "bio"), ("location", "location"), ("company", "company"), ("blog", "blog"), ("followers", "followers"), ("following", "following"),
+                       ("public_repos", "public_repos"), ("url", "html_url"), ("since", "created_at")] {
+            out[k] = u[f].clone();
+        }
         if let Ok(mut g) = LOGIN.lock() { *g = None; }
     } else if let Some((code, waiting)) = pending {
         out["code"] = json!(code);
@@ -76,10 +80,10 @@ pub fn connect() -> R {
         st["owner"] = json!(login);
         save("state", &st)
     })?;
+    // sync also scans the tech stack
     let synced = crate::run("sync", &json!({}))?;
-    let stack = crate::run("scan_stack", &json!({})).unwrap_or_else(|e| json!(format!("stack scan skipped: {e}")));
     if let Ok(mut g) = LOGIN.lock() { *g = None; }
-    Ok(json!({"connected": true, "login": login, "sync": synced, "stack": stack}))
+    Ok(json!({"connected": true, "login": login, "sync": synced, "stack": ""}))
 }
 
 fn start_login() -> R {
@@ -126,4 +130,58 @@ fn start_login() -> R {
         if let Ok(mut g) = LOGIN.lock() { if let Some(x) = g.as_mut() { x.1 = false; } }
     });
     Ok(json!({"connected": false, "waiting": true, "code": code, "url": "https://github.com/login/device"}))
+}
+
+/// Release, CI and open issue/PR counts for one repo, cached on the project as `extras`.
+pub fn project_extras(a: &Value) -> R {
+    let name = s(a, "repo");
+    let p = load("projects");
+    let proj = p.get(name).ok_or_else(|| format!("unknown repo {name} (run sync first)"))?;
+    if !proj["url"].is_string() {
+        return Err(format!("{name} is not on GitHub (local-only project), so there are no releases or CI to fetch"));
+    }
+    let owner = crate::owner()?;
+    let safe = |x: &str| !x.is_empty() && x.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if !safe(&owner) || !safe(name) {
+        return Err(format!("unsafe repo name {owner}/{name}"));
+    }
+    let q = format!("query{{repository(owner:\"{owner}\",name:\"{name}\"){{issues(states:OPEN){{totalCount}} pullRequests(states:OPEN){{totalCount}} latestRelease{{tagName publishedAt url}}}}}}");
+    let out = Command::new("gh").args(["api", "graphql", "-f", &format!("query={q}")]).output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    let v: Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+    let r = &v["data"]["repository"];
+    // last runs on the default branch; repos without Actions return an empty list
+    let branch = if s(proj, "branch").is_empty() { "main" } else { s(proj, "branch") };
+    let runs = Command::new("gh").args(["api", &format!("repos/{owner}/{name}/actions/runs?branch={branch}&per_page=7"), "-q",
+        "[.workflow_runs[] | {c: .conclusion, s: .status, at: .updated_at}]"]).output().ok().filter(|o| o.status.success())
+        .and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok()).unwrap_or(json!([]));
+    let ci: Vec<Value> = arr(&runs).iter().map(|x| json!({"ok": match s(x, "c") { "success" => json!(true), "" | "cancelled" | "skipped" | "neutral" => Value::Null, _ => json!(false) }, "at": x["at"]})).collect();
+    let extras = json!({"fetched": now(), "issues": r["issues"]["totalCount"], "prs": r["pullRequests"]["totalCount"],
+        "release": if r["latestRelease"].is_null() { Value::Null } else { json!({"tag": r["latestRelease"]["tagName"], "date": r["latestRelease"]["publishedAt"], "url": r["latestRelease"]["url"]}) },
+        "ci": ci});
+    locked(|| {
+        let mut p = load("projects");
+        if let Some(e) = p.get_mut(name) { e["extras"] = extras.clone(); }
+        save("projects", &p)
+    })?;
+    Ok(extras)
+}
+
+/// Screenshot the live site with a public screenshot service and store it, linked to the project. Sends only the site URL.
+pub fn capture_screenshot(a: &Value) -> R {
+    let name = s(a, "repo");
+    let p = load("projects");
+    let proj = p.get(name).ok_or_else(|| format!("unknown project {name}"))?;
+    let url = if s(a, "url").is_empty() { site(proj).to_string() } else { s(a, "url").to_string() };
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("this project has no live site URL (set live_url with update_project, or pass url)".into());
+    }
+    let service = format!("https://image.thum.io/get/width/1440/crop/900/noanimate/{url}");
+    let ag = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(40)).user_agent("hq-screenshot").build();
+    let resp = ag.get(&service).call().map_err(|e| format!("screenshot service failed: {e}"))?;
+    let mut bytes = vec![];
+    resp.into_reader().take(crate::files::MAX_BYTES).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    crate::files::add_bytes(&format!("{name}-live.png"), &bytes, "screenshot", Some(&json!({"type": "project", "ref": name})), &format!("Live site {url}"), "Live site")
 }

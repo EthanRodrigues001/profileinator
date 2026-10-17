@@ -127,7 +127,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         ) : (
           <div className="rounded-xl border border-border p-5 text-sm">
             <p className="flex items-center gap-2 font-medium"><Check className="size-4 text-ok" />Imported from {done.login}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{done.sync}. {done.stack}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{done.sync}</p>
           </div>
         )}
 

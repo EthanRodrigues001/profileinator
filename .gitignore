@@ -13,3 +13,6 @@ ui/.agents/
 ui/.claude/
 ui/skills-lock.json
 desktop/src-tauri/bin/
+
+# pdf.js worker is copied from node_modules on install
+ui/public/pdf.worker.min.mjs

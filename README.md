@@ -64,6 +64,16 @@ The dashboard opens on a welcome screen with three steps:
 
 `brief`, `onboarding`, `ask`, `graph_neighbors`, `graph_path`, `graph_explain`, `graph_stats` read; `set_identity`, `add_link`, `add_experience`, `add_education`, `add_achievement`, `add_tech`, `add_claim_gap`, `add_skill`, `add_project`, `update_project`, `set_positioning`, `set_answer`, `note` write; `github_status`, `github_connect`, `sync`, `scan_stack`, `commits`, `check_links` use the network; `undo`, `history` recover; `get`, `set`, `append`, `del` are the escape hatch for anything else.
 
+## Files
+
+Resources → **Files** keeps three things on your computer: your **profile picture**, every **resume version** you upload (one is marked current), and **screenshots** you can link to a project, role or achievement. Project pages also show the latest release, CI status, open issues and PRs, your impact numbers, and a cover image (upload one or capture the live site). Agents use `files`, `file_add`, `file_update`, `capture_screenshot` and `update_project`. Files live in the `files/` folder next to `profile.json`.
+
+## Inspector
+
+The right-hand rail changes with the page: on Projects it shows readiness checks with a fix next to each, on Links a link's check history, on Context the unanswered application questions as inline fields, on Activity the detail of a change with Undo, and so on. Tabs are the icon strip on its edge. Graph and Resume have no rail. The Resume page has a **Job match** tab that compares a pasted job description with your profile.
+
+Agent reads are recorded in `usage.json` next to `profile.json` (what was read, how often, when), so you can see which facts your answers rely on.
+
 ## Privacy
 
 Everything lives in one JSON file in your OS config folder (`hq where`). The only network calls are the ones you trigger: `gh` for GitHub, link checks, and the one-time model download. No telemetry, no tokens stored.
@@ -72,7 +82,7 @@ Everything lives in one JSON file in your OS config folder (`hq where`). The onl
 
 - **One file, one graph.** `profile.json` is the only store. The knowledge graph (people, roles, schools, projects, technologies, claims, decisions and the edges between them) is rebuilt from it on every call, so it can never drift from the data. Edges are marked `stated` (written in the data) or `derived` (inferred by matching names).
 - **Semantic retrieval, locally.** `ask` fuses keyword search (with a small thesaurus) and local semantic search, then widens along graph edges. Embeddings are static Model2Vec vectors (`potion-base-8M`, about 30 MB, downloaded once from Hugging Face and cached, nothing leaves your machine afterwards). If the model can't load, it falls back to keyword search. Build with `--no-default-features` to drop it. Vectors are cached in `profile.index.json` next to your profile; delete it any time.
-- **Traversal.** `graph_neighbors`, `graph_path` and `graph_explain` walk the graph. The Graph page in the app draws it.
+- **Traversal.** `graph_neighbors`, `graph_path` and `graph_explain` walk the graph. The Graph page in the app draws it. Projects that are not on GitHub carry a `hosting` fact and sit under the area "Local only (not on GitHub)"; the Graph page marks them with a drive icon.
 - **Safe writes.** Typed `add_*` tools validate input. Every write is recorded, so `undo` reverses it. A lock file makes the app and any number of MCP clients safe to write at the same time.
 
 ## Plans

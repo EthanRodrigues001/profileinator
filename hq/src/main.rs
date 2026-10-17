@@ -8,9 +8,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 mod embed;
+mod files;
 mod fill;
 mod github;
 mod graph;
+mod r#match;
 mod store;
 use store::*;
 
@@ -27,6 +29,7 @@ fn call(op: &str, a: &Value) -> R {
             if let Some(p) = pre {
                 history_record(op, p);
             }
+            if source() == "agent" { track_read(op, a); }
             if matches!(op, "set" | "append" | "del" | "pin" | "sync") {
                 log("change", &format!("{op} {}", s(a, "path").to_string() + s(a, "repo")));
             }
@@ -34,8 +37,27 @@ fn call(op: &str, a: &Value) -> R {
         r
     };
     // Network ops (gh, HTTP) must not hold the cross-process lock while they wait: they lock only for their final merge.
-    if matches!(op, "sync" | "check_links" | "commits" | "commits_all" | "scan_stack" | "github_connect" | "github_status" | "setup_agent" | "update_check") { go() } else { locked(go) }
+    if matches!(op, "sync" | "check_links" | "commits" | "commits_all" | "scan_stack" | "github_connect" | "github_status" | "setup_agent" | "update_check" | "mcp_status" | "repo_context" | "project_extras" | "capture_screenshot" | "open_url" | "check_link" | "commit_detail") { go() } else { locked(go) }
 }
+/// What an agent just read, written to the usage ledger so the app can show "agents used this".
+fn track_read(op: &str, a: &Value) {
+    match op {
+        "graph_explain" | "graph_neighbors" => {
+            let g = graph::build();
+            if let Ok(i) = graph::resolve(&g, s(a, "node")) { usage_bump(&g.nodes[i].id, &g.nodes[i].label); }
+        }
+        "graph_path" => {
+            let g = graph::build();
+            for k in ["from", "to"] { if let Ok(i) = graph::resolve(&g, s(a, k)) { usage_bump(&g.nodes[i].id, &g.nodes[i].label); } }
+        }
+        "ask" => usage_bump(&format!("ask:{}", s(a, "q")), s(a, "q")),
+        "get" => if !s(a, "path").is_empty() { usage_bump(&format!("path:{}", s(a, "path")), s(a, "path")) },
+        "search" => usage_bump(&format!("search:{}", s(a, "q")), s(a, "q")),
+        "brief" | "autofill" | "onboarding" => usage_bump(op, op),
+        _ => {}
+    }
+}
+
 fn run(op: &str, a: &Value) -> R {
     match op {
         "brief" => Ok(json!(if a["full"].as_bool().unwrap_or(false) { dossier() } else { brief() })),
@@ -122,7 +144,8 @@ fn run(op: &str, a: &Value) -> R {
             save("projects", &p)?;
             Ok(json!(format!("{name} pinned={on}")))
         }
-        "sync" => sync(),
+        // one click keeps repos and the detected stack in step; a failed scan never fails the sync
+        "sync" => sync().map(|r| match fill::scan_stack() { Ok(st) => json!(format!("{}. {}", text(&r), text(&st))), Err(e) => json!(format!("{} (stack scan skipped: {e})", text(&r))) }),
         "links" => Ok(load("state")["links"].clone()),
         "check_links" => check_links(),
         "autofill" => autofill(a),
@@ -136,7 +159,23 @@ fn run(op: &str, a: &Value) -> R {
         "set_positioning" => fill::set_positioning(a),
         "scan_stack" => fill::scan_stack(),
         "setup_agent" => { let (lines, ok) = setup_core(); Ok(json!({"connected": ok, "lines": lines, "mcp_url": "http://127.0.0.1:4777/mcp", "command": std::env::current_exe().unwrap_or_default().display().to_string()})) }
+        "repo_context" => fill::repo_context(a),
+        "files" => files::files(a),
+        "file_add" => files::add_from_path(a),
+        "file_update" => files::file_update(a),
+        "file_delete" => files::file_delete(a),
+        "set_avatar" => files::set_avatar(a),
+        "project_extras" => github::project_extras(a),
+        "capture_screenshot" => github::capture_screenshot(a),
+        "open_url" => open_url(s(a, "url")),
+        "usage" => Ok(usage(a)),
+        "link_history" => Ok(json!(load("state")["link_history"][s(a, "url")].clone())),
+        "storage" => files::storage(),
+        "commit_detail" => commit_detail(a),
+        "match_job" => r#match::match_job(a),
+        "check_link" => check_link(s(a, "url")),
         "update_check" => update_check(),
+        "mcp_status" => Ok(mcp_status()),
         "github_status" => github::status(),
         "github_connect" => github::connect(),
         "onboarding" => Ok(json!(fill::onboarding())),
@@ -216,24 +255,40 @@ fn fetch_commits(owner: &str, name: &str, n: u64) -> Result<Vec<Value>, String> 
     })).collect())
 }
 
-fn store_commits(map: &mut Map<String, Value>, name: &str, nodes: Vec<Value>) {
-    map.insert(name.into(), json!({"fetched": now(), "nodes": nodes}));
+fn store_commits(map: &mut Map<String, Value>, name: &str, nodes: Vec<Value>, limit: u64) {
+    map.insert(name.into(), json!({"fetched": now(), "limit": limit, "nodes": nodes}));
+}
+
+/// Cached history is reused for this long before it is pulled again (Refresh always pulls).
+const COMMITS_TTL: u64 = 6 * 3600;
+
+/// Is the cached history for a repo good enough for a request of `n` commits?
+/// It is when it is fresh, and when it already holds `n` commits or the repo simply has fewer than were asked for last time.
+fn commits_fresh(c: Option<&Value>, n: u64) -> bool {
+    let Some(c) = c else { return false };
+    let held = arr(&c["nodes"]).len() as u64;
+    let asked = c["limit"].as_u64().unwrap_or(held.max(30));
+    let complete = held >= n.min(asked) || held < asked; // short history = the whole repo
+    complete && now().saturating_sub(c["fetched"].as_u64().unwrap_or(0)) < COMMITS_TTL
 }
 
 /// One repo's history. Cached in profile.json; pass refresh=true to pull again.
 fn commits(a: &Value) -> R {
     let name = s(a, "repo");
-    if !load("projects").get(name).is_some() {
+    let projects = load("projects");
+    let Some(proj) = projects.get(name) else {
         return Err(format!("unknown repo {name}"));
+    };
+    if !proj["url"].is_string() {
+        return Err(format!("{name} is not on GitHub (local-only project), so it has no commits to fetch"));
     }
     let n = a["limit"].as_u64().unwrap_or(100);
     let cached = load("commits");
-    let stale = cached.get(name).map_or(true, |c| arr(&c["nodes"]).len() < (n as usize).min(30));
-    if a["refresh"].as_bool().unwrap_or(false) || stale {
+    if a["refresh"].as_bool().unwrap_or(false) || !commits_fresh(cached.get(name), n) {
         let nodes = fetch_commits(&owner()?, name, n)?;
         return locked(|| {
             let mut all = load("commits").as_object().cloned().unwrap_or_default();
-            store_commits(&mut all, name, nodes);
+            store_commits(&mut all, name, nodes, n);
             put("commits", json!(all))?;
             Ok(all[name].clone())
         });
@@ -245,7 +300,7 @@ fn commits(a: &Value) -> R {
 fn commits_all(a: &Value) -> R {
     let o = owner()?;
     let n = a["limit"].as_u64().unwrap_or(30);
-    let names: Vec<String> = load("projects").as_object().into_iter().flatten().filter(|(_, p)| p["fork"] != true).map(|(k, _)| k.clone()).collect();
+    let names: Vec<String> = load("projects").as_object().into_iter().flatten().filter(|(_, p)| p["fork"] != true && p["url"].is_string()).map(|(k, _)| k.clone()).collect();
     let (mut ok, mut failed) = (0, vec![]);
     let mut fetched: Vec<(String, Vec<Value>)> = vec![];
     for chunk in names.chunks(6) {
@@ -263,7 +318,7 @@ fn commits_all(a: &Value) -> R {
     locked(|| {
         let mut all = load("commits").as_object().cloned().unwrap_or_default();
         for (nm, nodes) in fetched {
-            store_commits(&mut all, &nm, nodes);
+            store_commits(&mut all, &nm, nodes, n);
         }
         put("commits", json!(all))
     })?;
@@ -384,8 +439,11 @@ fn update_project(a: &Value) -> R {
         }
     }
     let mut changed = vec![];
-    for k in ["tagline", "summary", "category", "status", "when", "homepage", "live_url", "visibility", "note", "local_path", "stack", "bullets", "pinned"] {
+    for k in ["tagline", "summary", "category", "status", "when", "homepage", "live_url", "visibility", "note", "local_path", "stack", "bullets", "pinned", "impact", "cover"] {
         if let Some(v) = a.get(k).filter(|v| !v.is_null()) {
+            if k == "impact" && !v.as_array().is_some_and(|l| l.iter().all(|x| !s(x, "label").is_empty() && !s(x, "value").is_empty())) {
+                return Err("impact must be a list of {label, value}, e.g. {label: \"Users\", value: \"1.2k\"}".into());
+            }
             if matches!(k, "stack" | "bullets") && !v.as_array().is_some_and(|l| l.iter().all(|x| x.is_string())) {
                 return Err(format!("{k} must be a list of strings"));
             }
@@ -403,6 +461,55 @@ fn update_project(a: &Value) -> R {
     Ok(json!(format!("{name} updated: {}", changed.join(", "))))
 }
 
+/// What the MCP tab shows: how agents reach hq, whether Claude Code has it registered, and what tools it offers.
+fn mcp_status() -> Value {
+    let exe = std::env::current_exe().unwrap_or_default().display().to_string();
+    let list = tools();
+    let tool_rows: Vec<Value> = arr(&list).iter().map(|t| {
+        let name = s(t, "name");
+        let kind = if matches!(name, "sync" | "scan_stack" | "check_links" | "commits" | "commits_all" | "github_connect" | "github_status" | "update_check" | "repo_context") { "network" }
+            else if name.starts_with("add_") || name.starts_with("set") || matches!(name, "append" | "del" | "pin" | "note" | "undo" | "update_project") { "write" } else { "read" };
+        json!({"name": name, "kind": kind, "desc": s(t, "description")})
+    }).collect();
+    // `claude mcp get hq` checks just this server (the full list probes every configured server and is slow)
+    let claude = match Command::new("claude").args(["mcp", "get", "hq"]).output() {
+        Ok(o) if o.status.success() => {
+            let out = String::from_utf8_lossy(&o.stdout).to_string();
+            let field = |k: &str| out.lines().find_map(|l| l.trim().strip_prefix(k)).map(|v| v.trim().to_string()).unwrap_or_default();
+            json!({"installed": true, "registered": true, "scope": field("Scope:"), "status": field("Status:")})
+        }
+        Ok(_) => json!({"installed": true, "registered": false}),
+        Err(_) => json!({"installed": false, "registered": false}),
+    };
+    let msg = rpc(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
+    json!({"server": {"name": "hq", "version": env!("CARGO_PKG_VERSION"), "command": exe, "args": ["mcp"], "url": "http://127.0.0.1:4777/mcp",
+                      "responding": msg.is_some(), "data": file().display().to_string()},
+           "claude": claude, "tools": tool_rows})
+}
+
+#[cfg(windows)]
+fn spawn_browser(url: &str) -> std::io::Result<std::process::Child> {
+    // rundll32 takes the URL as one argument, so characters like & are not interpreted by a shell
+    let mut c = Command::new("rundll32");
+    c.args(["url.dll,FileProtocolHandler", url]);
+    std::os::windows::process::CommandExt::creation_flags(&mut c, 0x0800_0000);
+    c.spawn()
+}
+#[cfg(target_os = "macos")]
+fn spawn_browser(url: &str) -> std::io::Result<std::process::Child> { Command::new("open").arg(url).spawn() }
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn spawn_browser(url: &str) -> std::io::Result<std::process::Child> { Command::new("xdg-open").arg(url).spawn() }
+
+/// Open a web link in the user's default browser (the desktop window cannot open external links itself).
+fn open_url(url: &str) -> R {
+    let ok_scheme = url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:");
+    if !ok_scheme || url.len() > 2000 || url.chars().any(|c| c.is_control() || c == ' ' || c == '"' || c == '<' || c == '>') {
+        return Err("only plain http, https and mailto links can be opened".into());
+    }
+    let started = spawn_browser(url);
+    started.map(|_| json!("opened")).map_err(|e| format!("could not open the browser: {e}"))
+}
+
 const RELEASES: &str = "https://api.github.com/repos/EthanRodrigues001/profileinator/releases/latest";
 
 fn version_parts(v: &str) -> Vec<u64> {
@@ -411,6 +518,16 @@ fn version_parts(v: &str) -> Vec<u64> {
 
 /// Is a newer release published? Used by the dashboard's update banner (and the desktop app's installer).
 fn update_check() -> R {
+    static CACHE: Mutex<Option<(Instant, Value)>> = Mutex::new(None);
+    if let Some((at, v)) = CACHE.lock().ok().and_then(|g| g.clone()) {
+        if at.elapsed() < Duration::from_secs(1800) { return Ok(v); }
+    }
+    let r = update_check_fresh()?;
+    if let Ok(mut g) = CACHE.lock() { *g = Some((Instant::now(), r.clone())); }
+    Ok(r)
+}
+
+fn update_check_fresh() -> R {
     let current = env!("CARGO_PKG_VERSION");
     let ag = ureq::AgentBuilder::new().timeout(Duration::from_secs(10)).user_agent("hq-update-check").build();
     let rel: Value = ag.get(RELEASES).call().map_err(|e| format!("could not reach GitHub: {e}"))?.into_json().map_err(|e| e.to_string())?;
@@ -431,7 +548,7 @@ fn repos(a: &Value) -> R {
         .map(|(n, p)| {
             let live = st["links"][site(p)]["status"].clone();
             json!({"name": n, "pinned": p["pinned"] == true, "private": p["private"], "fork": p["fork"], "stars": p["stars"],
-                   "pushed": p["pushed"], "primary": p["primary"], "desc": p["desc"], "tagline": p["tagline"], "stack": p["stack"], "category": p["category"], "visibility": p["visibility"], "summary": p["summary"], "status": p["status"], "when": p["when"], "local_path": p["local_path"], "note": p["note"], "bullets": p["bullets"], "created": p["created"], "url": p["url"], "topics": p["topics"],
+                   "pushed": p["pushed"], "primary": p["primary"], "desc": p["desc"], "tagline": p["tagline"], "stack": p["stack"], "category": p["category"], "visibility": p["visibility"], "summary": p["summary"], "status": p["status"], "when": p["when"], "local_path": p["local_path"], "note": p["note"], "bullets": p["bullets"], "created": p["created"], "url": p["url"], "topics": p["topics"], "detected": p["detected"], "impact": p["impact"], "cover": p["cover"], "extras": p["extras"], "license": p["license"], "branch": p["branch"], "forks": p["forks"], "size_kb": p["size_kb"],
                    "homepage": site(p), "live": live, "langs": p["langs"]})
         })
         .collect();
@@ -445,7 +562,7 @@ fn repos(a: &Value) -> R {
 fn sync() -> R {
     let out = Command::new("gh")
         .args(["repo", "list", "--limit", "300", "--json",
-               "name,description,homepageUrl,isFork,isPrivate,languages,primaryLanguage,pushedAt,createdAt,repositoryTopics,stargazerCount,url"])
+               "name,description,homepageUrl,isFork,isPrivate,languages,primaryLanguage,pushedAt,createdAt,repositoryTopics,stargazerCount,url,licenseInfo,defaultBranchRef,forkCount,diskUsage"])
         .output()
         .map_err(|e| format!("gh not available: {e}"))?;
     if !out.status.success() {
@@ -464,7 +581,8 @@ fn sync() -> R {
         for (k, v) in [("url", r["url"].clone()), ("desc", r["description"].clone()), ("homepage", r["homepageUrl"].clone()),
             ("private", r["isPrivate"].clone()), ("fork", r["isFork"].clone()), ("stars", r["stargazerCount"].clone()),
             ("pushed", r["pushedAt"].clone()), ("created", r["createdAt"].clone()), ("primary", r["primaryLanguage"]["name"].clone()),
-            ("langs", json!(langs)), ("topics", json!(topics))] {
+            ("langs", json!(langs)), ("topics", json!(topics)), ("license", r["licenseInfo"]["name"].clone()),
+            ("branch", r["defaultBranchRef"]["name"].clone()), ("forks", r["forkCount"].clone()), ("size_kb", r["diskUsage"].clone())] {
             e[k] = v;
         }
         n += 1;
@@ -490,6 +608,30 @@ fn link_urls() -> Vec<String> {
     u.dedup();
     u
 }
+/// Most-read items from the usage ledger, newest and most-read first.
+fn usage(a: &Value) -> Value {
+    let mut v: Vec<Value> = usage_all().as_object().into_iter().flatten().map(|(k, x)| json!({"key": k, "label": x["label"], "n": x["n"], "last": x["last"]})).collect();
+    v.sort_by(|x, y| y["n"].as_u64().cmp(&x["n"].as_u64()).then(y["last"].as_u64().cmp(&x["last"].as_u64())));
+    v.truncate(a["limit"].as_u64().unwrap_or(50) as usize);
+    json!(v)
+}
+
+/// Files changed in one commit (names, status, lines), straight from GitHub through gh.
+fn commit_detail(a: &Value) -> R {
+    let (repo, sha) = (s(a, "repo"), s(a, "sha"));
+    let safe = |x: &str| !x.is_empty() && x.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if !safe(repo) || sha.len() < 7 || sha.len() > 40 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("repo and a commit sha (7-40 hex characters) are required".into());
+    }
+    let owner = owner()?;
+    let out = Command::new("gh").args(["api", &format!("repos/{owner}/{repo}/commits/{sha}"), "-q",
+        "{message: .commit.message, url: .html_url, stats: .stats, files: [.files[] | {name: .filename, status: .status, add: .additions, del: .deletions}]}"]).output().map_err(|e| e.to_string())?;
+    if !out.status.success() { return Err(String::from_utf8_lossy(&out.stderr).trim().to_string()); }
+    let mut v: Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+    if let Some(f) = v["files"].as_array_mut() { f.truncate(60); }
+    Ok(v)
+}
+
 fn check_one(url: &str) -> Value {
     let ag = ureq::AgentBuilder::new().timeout(Duration::from_secs(10)).user_agent("hq-link-check/0.1").build();
     let t = Instant::now();
@@ -500,6 +642,23 @@ fn check_one(url: &str) -> Value {
     };
     json!({"code": code, "status": status, "ms": t.elapsed().as_millis() as u64, "checked": ymd(now())})
 }
+/// Re-check a single URL and store its result next to the others.
+fn check_link(url: &str) -> R {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("only http and https links can be checked".into());
+    }
+    let r = check_one(url);
+    locked(|| {
+        let mut st = load("state");
+        if !st["links"].is_object() { st["links"] = json!({}); }
+        st["links"][url] = r.clone();
+        save("state", &st)?;
+        link_history_push(url, &r);
+        Ok::<(), String>(())
+    })?;
+    Ok(r)
+}
+
 fn check_links() -> R {
     let urls = link_urls();
     let mut res = Map::new();
@@ -514,7 +673,9 @@ fn check_links() -> R {
     locked(|| {
         let mut st = load("state");
         st["links"] = json!(res.clone());
-        save("state", &st)
+        save("state", &st)?;
+        for (u, r) in &res { link_history_push(u, r); }
+        Ok::<(), String>(())
     })?;
     let bad: Vec<_> = res.iter().filter(|(_, v)| v["status"] == "dead" || v["status"] == "down").map(|(k, v)| format!("{k} ({})", v["code"])).collect();
     Ok(json!({"checked": res.len(), "broken": bad, "gated": res.iter().filter(|(_, v)| v["status"] == "gated").map(|(k, _)| k).collect::<Vec<_>>()}))
@@ -683,7 +844,7 @@ fn dossier() -> String {
     let proj = |name: &str, p: &Value| {
         let t = [s(p, "tagline"), s(p, "summary"), s(p, "desc")].into_iter().find(|x| !x.is_empty()).unwrap_or("");
         let stk = if p["stack"].is_array() { join(&p["stack"]) } else { s(p, "primary").to_string() };
-        format!("{name}: {t} | {stk}{}{}", if site(p).is_empty() { String::new() } else { format!(" | {}", site(p)) }, if s(p, "when").is_empty() { String::new() } else { format!(" | {}", s(p, "when")) })
+        format!("{name}{}: {t} | {stk}{}{}", if p["url"].is_string() { "" } else { " (local only, not on GitHub)" }, if site(p).is_empty() { String::new() } else { format!(" | {}", site(p)) }, if s(p, "when").is_empty() { String::new() } else { format!(" | {}", s(p, "when")) })
     };
     o += "\n## Projects\n### Pinned (on the resume)\n";
     for (n, p) in pinned() {
@@ -797,11 +958,12 @@ fn tools() -> Value {
                    "first_seen": str_, "last_used": str_, "recent": {"type": "array", "items": str_}, "note": str_}), &["name", "category", "tier"]),
         tool("add_claim_gap", "Record a skill that is claimed on a profile but has no code evidence, with what to do about it. Never claim these.",
             json!({"name": str_, "where": str_, "evidence": str_, "action": str_}), &["name", "where", "evidence"]),
-        tool("add_project", "Add or update a project that is not only a GitHub repo (local-only, hackathon, private). Merges into an existing project of the same name.",
+        tool("add_project", "Add or update a project that is not only a GitHub repo (local-only, hackathon, private). Merges into an existing project of the same name. A project with no GitHub repo is marked Local only in the UI and in the graph (fact hosting, area node Local only (not on GitHub)); it has no commits, releases or CI, so set status, when, local_path and stack yourself.",
             json!({"name": str_, "category": {"type": "string", "enum": PROJ_CATS}, "summary": str_, "stack": {"type": "array", "items": str_}, "status": str_, "when": str_,
                    "live_url": str_, "local_path": str_, "repo": str_, "license": str_, "visibility": {"type": "string", "enum": PROJ_VIS}, "note": str_}), &["name", "category", "summary"]),
         tool("update_project", "Edit an existing project (a synced GitHub repo or one from add_project): tagline, summary, bullets (resume lines), stack, category, status, homepage, visibility, note, pinned.",
             json!({"name": str_, "tagline": str_, "summary": str_, "bullets": {"type": "array", "items": str_}, "stack": {"type": "array", "items": str_}, "category": {"type": "string", "enum": PROJ_CATS},
+                   "impact": {"type": "array", "description": "Numbers recruiters read: users, requests per day, downloads, load time", "items": {"type": "object", "properties": {"label": str_, "value": str_, "note": str_}, "required": ["label", "value"]}}, "cover": {"type": "string", "description": "id of a stored screenshot to use as the cover"},
                    "status": str_, "when": str_, "homepage": str_, "visibility": {"type": "string", "enum": PROJ_VIS}, "note": str_, "pinned": {"type": "boolean"}}), &["name"]),
         tool("onboarding", "Setup checklist for a new or incomplete profile: what is done, what is missing, exactly what to ask the user and which tool stores each answer. Call this first when brief says the profile is empty, and again after each section.", json!({}), &[]),
         tool("set_identity", "Set identity fields (validated). Merges: only the fields you pass change.",
@@ -815,6 +977,22 @@ fn tools() -> Value {
         tool("set_positioning", "Set the target role (direction), headline and summary variants ({label,text}), things to avoid, and the honest skill order. Only the keys you pass change.",
             json!({"direction": str_, "headlines": {"type": "array", "items": {"type": "object"}}, "summaries": {"type": "array", "items": {"type": "object"}}, "avoid": {"type": "array", "items": str_}, "skill_order": {"type": "array", "items": str_}}), &[]),
         tool("scan_stack", "Derive the evidence-based tech stack from the user's own GitHub repos (package.json, requirements.txt, Cargo.toml plus language bytes): which technologies, how many projects, first and last use, and a tier (Core, Regular, Working, Tried, Past). Run after sync. Undoable.", json!({}), &[]),
+        tool("repo_context", "Facts about one synced repo for writing its resume entry: description, languages, detected stack, top-level files and README excerpt. Use before update_project so taglines and bullets come from the real repo.", json!({"repo": str_}), &["repo"]),
+        tool("files", "List stored files (profile picture, resume versions, screenshots). Filter by kind (avatar|resume|screenshot|other) or by what they are linked to (ref_type project|experience|education|achievement, ref).", json!({"kind": {"type": "string", "enum": files::KINDS}, "ref_type": str_, "ref": str_}), &[]),
+        tool("file_add", "Copy a local file into the profile's file store. kind: avatar (profile picture), resume (a new resume version; it becomes the current one), screenshot, other. link ties it to a project/role/achievement, e.g. {type:'project', ref:'Typeset'}.",
+            json!({"path": str_, "kind": {"type": "string", "enum": files::KINDS}, "name": str_, "label": str_, "note": str_, "link": {"type": "object", "properties": {"type": str_, "ref": str_}}}), &["path", "kind"]),
+        tool("file_update", "Edit a stored file: name, note, label, kind, mark a resume version current, or link/unlink it to a project, role, education or achievement.",
+            json!({"id": str_, "name": str_, "note": str_, "label": str_, "kind": {"type": "string", "enum": files::KINDS}, "current": {"type": "boolean"}, "link": {"type": "object"}, "unlink": {"type": "object"}}), &["id"]),
+        tool("file_delete", "Permanently delete a stored file and its bytes. Ask the user first.", json!({"id": str_}), &["id"]),
+        tool("set_avatar", "Use a stored image as the profile picture.", json!({"id": str_}), &["id"]),
+        tool("project_extras", "Fetch a repo's latest release, CI status on the default branch and open issue/PR counts from GitHub and cache them.", json!({"repo": str_}), &["repo"]),
+        tool("capture_screenshot", "Screenshot a project's live site with a public screenshot service (only the URL is sent) and store it linked to the project.", json!({"repo": str_, "url": str_}), &["repo"]),
+        tool("check_link", "Re-check one URL (status, response time) and store the result. check_links does every profile and pinned-project link at once.", json!({"url": str_}), &["url"]),
+        tool("usage", "What agents have read from this profile, most-read first: graph nodes, paths, questions. Useful to see which facts your answers rely on.", json!({"limit": {"type": "integer"}}), &[]),
+        tool("link_history", "The last 10 check results (status, code, response time) for one URL.", json!({"url": str_}), &["url"]),
+        tool("storage", "Space used by stored files, by kind, plus groups of identical (duplicate) files.", json!({}), &[]),
+        tool("commit_detail", "Files changed in one commit of a synced repo: name, status, lines added and removed.", json!({"repo": str_, "sha": str_}), &["repo", "sha"]),
+        tool("match_job", "Compare a pasted job description with the profile: which technologies it asks for the profile can back (with evidence), which it cannot, and which the user said to avoid. Returns a score and per-requirement results. Never claim a gap.", json!({"text": str_}), &["text"]),
         tool("update_check", "Is a newer Profileinator release published? Returns current and latest version and the release notes.", json!({}), &[]),
         tool("github_status", "Is the GitHub CLI installed and signed in, as whom, and how many repos are stored.", json!({}), &[]),
         tool("github_connect", "Import from GitHub: if gh is signed in, fills name/bio/link, syncs repos and scans the tech stack; if not, starts browser sign-in and returns a one-time code.", json!({}), &[]),
@@ -853,6 +1031,7 @@ fn rpc(m: &Value) -> Option<Value> {
 }
 
 fn mcp() {
+    set_source("agent");
     for line in std::io::stdin().lock().lines().map_while(Result::ok) {
         let Ok(m) = serde_json::from_str::<Value>(&line) else { continue };
         if let Some(r) = rpc(&m) {
@@ -880,12 +1059,30 @@ fn asset(url: &str) -> Option<(&'static str, Vec<u8>)> {
         f = root.join(format!("{path}.html"));
     }
     let ct = match f.extension().and_then(|e| e.to_str()) {
-        Some("html") => "text/html; charset=utf-8", Some("js") => "text/javascript", Some("css") => "text/css",
+        Some("html") => "text/html; charset=utf-8", Some("js") | Some("mjs") => "text/javascript", Some("css") => "text/css",
         Some("svg") => "image/svg+xml", Some("json") => "application/json", Some("woff2") => "font/woff2",
         Some("png") => "image/png", Some("ico") => "image/x-icon", Some("txt") => "text/plain", _ => "application/octet-stream",
     };
     std::fs::read(&f).ok().map(|b| (ct, b))
 }
+/// Query string as a map, percent-decoded.
+fn query(url: &str) -> std::collections::HashMap<String, String> {
+    let dec = |s: &str| {
+        let b = s.replace('+', " ").into_bytes();
+        let mut out = Vec::with_capacity(b.len());
+        let mut i = 0;
+        while i < b.len() {
+            if b[i] == b'%' && i + 2 < b.len() + 0 && i + 2 <= b.len() - 1 {
+                if let Ok(v) = u8::from_str_radix(&String::from_utf8_lossy(&b[i + 1..i + 3]), 16) { out.push(v); i += 3; continue; }
+            }
+            out.push(b[i]);
+            i += 1;
+        }
+        String::from_utf8_lossy(&out).to_string()
+    };
+    url.split_once('?').map(|(_, q)| q.split('&').filter_map(|p| p.split_once('=')).map(|(k, v)| (dec(k), dec(v))).collect()).unwrap_or_default()
+}
+
 fn serve(port: u16, open: bool) {
     let url = format!("http://127.0.0.1:{port}");
     let srv = Arc::new(tiny_http::Server::http(format!("127.0.0.1:{port}")).unwrap_or_else(|e| { eprintln!("cannot bind {port}: {e}"); std::process::exit(1) }));
@@ -901,10 +1098,34 @@ fn serve(port: u16, open: bool) {
     }
     for mut rq in srv.incoming_requests() {
         std::thread::spawn(move || {
+            set_source("app");
             let hdr = |n: &str| rq.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case(n)).map(|h| h.value.to_string()).unwrap_or_default();
             let host_ok = [format!("127.0.0.1:{port}"), format!("localhost:{port}")].contains(&hdr("Host"));
             let (code, ctype, body) = if !host_ok {
                 (403, "text/plain", "bad host".to_string())
+            } else if *rq.method() == tiny_http::Method::Get && rq.url().starts_with("/files/") {
+                // stored files: unguessable ids, local host only, never listed
+                let id = rq.url().trim_start_matches("/files/").split(['?', '#']).next().unwrap_or("").to_string();
+                match files::read(&id) {
+                    Some((mime, bytes, name)) => {
+                        let h = tiny_http::Header::from_bytes("Content-Type", mime.as_str()).unwrap();
+                        let d = tiny_http::Header::from_bytes("Content-Disposition", format!("inline; filename=\"{}\"", name.replace('"', ""))).unwrap();
+                        let _ = rq.respond(tiny_http::Response::from_data(bytes).with_header(h).with_header(d));
+                        return;
+                    }
+                    None => (404, "text/plain", "no such file".to_string()),
+                }
+            } else if *rq.method() == tiny_http::Method::Post && rq.url().starts_with("/files/upload") && !hdr("x-hq").is_empty() {
+                // raw bytes in the body; name, kind and link in the query string
+                let q = query(rq.url());
+                let mut bytes = vec![];
+                let _ = std::io::Read::read_to_end(&mut std::io::Read::take(rq.as_reader(), files::MAX_BYTES + 1), &mut bytes);
+                let get = |k: &str| q.get(k).cloned().unwrap_or_default();
+                let link = (!get("link_type").is_empty()).then(|| json!({"type": get("link_type"), "ref": get("link_ref")}));
+                match files::add_bytes(&get("name"), &bytes, &get("kind"), link.as_ref(), &get("note"), &get("label")) {
+                    Ok(v) => (200, "application/json", json!({"ok": v}).to_string()),
+                    Err(e) => (200, "application/json", json!({"err": e}).to_string()),
+                }
             } else if *rq.method() == tiny_http::Method::Get {
                 match asset(rq.url()) {
                     Some((ct, bytes)) => {
@@ -922,7 +1143,7 @@ fn serve(port: u16, open: bool) {
                     let mut b = String::new();
                     let _ = rq.as_reader().read_to_string(&mut b);
                     match serde_json::from_str::<Value>(&b) {
-                        Ok(m) => match rpc(&m) {
+                        Ok(m) => match { set_source("agent"); rpc(&m) } {
                             Some(r) => (200, "application/json", r.to_string()),
                             None => (202, "text/plain", String::new()),
                         },

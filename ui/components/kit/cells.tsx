@@ -1,3 +1,4 @@
+import { HardDrive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusIcon, STAGE_LABEL, stageState, type State } from "./status-icon";
 
@@ -56,7 +57,10 @@ export function StatusChip({ state, children, className }: { state: State; child
   );
 }
 
-/** Live-site stage of a project: Live, Gated, Broken, Down, or "Repo only" when there is no site. */
-export function StageChip({ live }: { live?: string | null }) {
-  return <StatusChip state={stageState(live)}>{live ? STAGE_LABEL[live] ?? live : "Repo only"}</StatusChip>;
+/** Stage of a project: Live, Gated, Broken, Down, "Repo only" (on GitHub, no site) or "Local only" (not on GitHub). */
+export function StageChip({ live, local, className }: { live?: string | null; local?: boolean; className?: string }) {
+  if (local && !live) {
+    return <span className={cn("inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md border border-dashed border-border bg-card/60 pl-1.5 pr-2.5 text-xs font-medium", className)}><HardDrive className="size-3.5 text-muted-foreground" />Local only</span>;
+  }
+  return <StatusChip state={stageState(live)} className={className}>{live ? STAGE_LABEL[live] ?? live : "Repo only"}</StatusChip>;
 }

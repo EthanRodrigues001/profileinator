@@ -1,19 +1,9 @@
+"use client";
+import { useState } from "react";
+import { ChevronDown, MapPin } from "lucide-react";
 import type { Education, Experience } from "@/lib/hq";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { TechBadge } from "./tech-badge";
-
-const hue = (s: string) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
-
-function Tile({ name }: { name: string }) {
-  const h = hue(name);
-  return (
-    <div className="grid size-11 shrink-0 place-items-center rounded-xl border text-sm font-semibold"
-      style={{ background: `oklch(0.3 0.06 ${h} / 55%)`, borderColor: `oklch(0.7 0.12 ${h} / 30%)`, color: `oklch(0.85 0.1 ${h})` }}>
-      {name.trim()[0]?.toUpperCase()}
-    </div>
-  );
-}
 
 const TYPE_TONE: Record<string, string> = {
   "Full-time": "border-emerald-400/25 bg-emerald-400/10 text-emerald-300",
@@ -46,85 +36,130 @@ export const duration = (start: string, end: string) => {
 };
 export const period = (s: string, e: string) => [fmtDate(s), fmtDate(e)].filter(Boolean).join(" – ");
 
-const Label = ({ children }: { children: React.ReactNode }) => <div className="mb-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{children}</div>;
-const Pills = ({ items, tech, tone }: { items: string[]; tech?: boolean; tone?: string }) => (
-  <div className="flex flex-wrap gap-1.5">
-    {items.map((s) => tech ? <TechBadge key={s} name={s} /> : <Badge key={s} variant="secondary" className={cn("h-6 rounded-md px-2 text-xs font-medium", tone)}>{s}</Badge>)}
-  </div>
-);
-const Bullets = ({ items }: { items: string[] }) => (
-  <ul className="space-y-2 text-sm leading-relaxed text-foreground/90">{items.map((b, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-px w-3 shrink-0 bg-muted-foreground/60" />{b}</li>)}</ul>
+const Chip = ({ children, className }: { children: React.ReactNode; className?: string }) => (
+  <span className={cn("inline-flex h-5 items-center rounded-full border px-2 text-[11px] font-medium", className ?? "border-border bg-card/60 text-muted-foreground")}>{children}</span>
 );
 
-/** One ruled entry: tile, title block and period on the first line; details underneath, indented to the title. */
-function Entry({ first, tile, title, tag, sub, right, children }: { first: boolean; tile: string; title: React.ReactNode; tag?: React.ReactNode; sub: React.ReactNode; right: React.ReactNode; children?: React.ReactNode }) {
+/** A small text chip (courses, learnings, clubs), capped with a "+N" tail. */
+function Tags({ items, max, tone }: { items: string[]; max: number; tone?: string }) {
   return (
-    <div className={cn("py-6", !first && "border-t border-border", first && "pt-2")}>
-      <div className="flex items-start gap-4">
-        <Tile name={tile} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h3 className="font-medium leading-snug">{title}</h3>{tag}</div>
-          <div className="mt-0.5 text-sm text-muted-foreground">{sub}</div>
-        </div>
-        <div className="hidden text-right sm:block">{right}</div>
-      </div>
-      {children && <div className="mt-5 space-y-5 pl-[60px]">{children}</div>}
+    <div className="flex flex-wrap items-center gap-1">
+      {items.slice(0, max).map((s) => <span key={s} className={cn("rounded-md border px-1.5 py-0.5 text-[11px]", tone ?? "border-border bg-card/40 text-muted-foreground")}>{s}</span>)}
+      {items.length > max && <span className="text-[11px] text-muted-foreground">+{items.length - max}</span>}
     </div>
   );
 }
 
-/** Work history: type tag, place, period and duration; then work done, stack used and learnings. */
+/** Timeline rail: a line with one dot per entry; the entry in progress gets a ringed brand dot. */
+function Rail({ children }: { children: React.ReactNode }) {
+  return <ol className="relative ml-1 border-l border-border pl-6">{children}</ol>;
+}
+
+function Entry({ live, title, org, chips, meta, when, children, more }: {
+  live?: boolean; title: React.ReactNode; org: React.ReactNode; chips?: React.ReactNode; meta?: React.ReactNode;
+  when: { period: string; length?: string }; children?: React.ReactNode; more?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="relative pb-5 last:pb-0">
+      <i className={cn("absolute -left-[29px] top-[7px] size-2.5 rounded-full border-2 border-background", live ? "bg-brand ring-2 ring-brand/30" : "bg-muted-foreground/50")} />
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h3 className="text-[14px] font-medium leading-snug">{title}</h3>
+            <span className="text-[13px] text-muted-foreground">{org}</span>
+            {chips}
+          </div>
+          {meta && <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground/80">{meta}</div>}
+        </div>
+        <div className="whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">
+          {when.period}{when.length && <span className="ml-2 text-muted-foreground/60">{when.length}</span>}
+        </div>
+      </div>
+      {children && <div className="mt-2 space-y-2">{children}</div>}
+      {more && (
+        <>
+          {open && <div className="mt-2 space-y-2">{more}</div>}
+          <button onClick={() => setOpen((o) => !o)} className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground">
+            {open ? "Show less" : "Show more"}<ChevronDown className={cn("size-3 transition-transform", open && "rotate-180")} />
+          </button>
+        </>
+      )}
+    </li>
+  );
+}
+
+const Bullets = ({ items }: { items: string[] }) => (
+  <ul className="space-y-1 text-[13px] leading-relaxed text-foreground/85">
+    {items.map((b, i) => <li key={i} className="flex gap-2.5"><span className="mt-[0.7em] h-px w-2.5 shrink-0 bg-muted-foreground/60" />{b}</li>)}
+  </ul>
+);
+
+const Sub = ({ children }: { children: React.ReactNode }) => <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">{children}</div>;
+
+/** Work history as a timeline: role, place, type and period at a glance; two highlights and the stack inline; the rest on demand. */
 export function ExperienceList({ items }: { items: Experience[] }) {
   return (
-    <div>
-      {items.map((e, i) => (
-        <Entry key={i} first={i === 0} tile={e.org} title={e.role}
-          tag={<>{e.type && <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", TYPE_TONE[e.type] ?? TYPE_TONE.Volunteer)}>{e.type}</span>}{e.visibility === "Private" && <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">Private</span>}</>}
-          sub={<>{e.org}{e.location && ` · ${e.location}`}{e.mode && ` · ${e.mode}`}</>}
-          right={<><div className="font-mono text-xs">{period(e.start, e.end)}</div><div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{duration(e.start, e.end)}</div></>}>
-          {e.note || e.highlights?.length || e.stack?.length || e.learned?.length ? (
-            <>
-              {e.note && <p className="text-sm leading-relaxed text-muted-foreground">{e.note}</p>}
-              {e.highlights?.length ? <div><Label>Work done</Label><Bullets items={e.highlights} /></div> : null}
-              {e.stack?.length ? <div><Label>Stack used</Label><Pills items={e.stack} tech /></div> : null}
-              {e.learned?.length ? <div><Label>Learned</Label><Pills items={e.learned} tone="bg-emerald-400/10 text-emerald-300" /></div> : null}
-            </>
-          ) : undefined}
-        </Entry>
-      ))}
-    </div>
+    <Rail>
+      {items.map((e, i) => {
+        const hl = e.highlights ?? [];
+        const stack = e.stack ?? [];
+        const restHl = hl.slice(2);
+        const hasMore = restHl.length > 0 || stack.length > 6 || !!e.learned?.length;
+        return (
+          <Entry key={i} live={e.end === "Present"} title={e.role} org={<>{e.org}</>}
+            chips={<>{e.type && <Chip className={TYPE_TONE[e.type] ?? TYPE_TONE.Volunteer}>{e.type}</Chip>}{e.visibility === "Private" && <Chip>Private</Chip>}</>}
+            meta={(e.location || e.mode) ? <><MapPin className="size-3" />{[e.location, e.mode].filter(Boolean).join(" · ")}</> : undefined}
+            when={{ period: period(e.start, e.end), length: duration(e.start, e.end) }}
+            more={hasMore ? (
+              <>
+                {restHl.length > 0 && <Bullets items={restHl} />}
+                {stack.length > 6 && <div className="flex flex-wrap gap-1.5">{stack.slice(6).map((s) => <TechBadge key={s} name={s} />)}</div>}
+                {e.learned?.length ? <div><Sub>Learned</Sub><Tags items={e.learned} max={20} tone="border-emerald-400/20 bg-emerald-400/10 text-emerald-300" /></div> : null}
+              </>
+            ) : undefined}>
+            {(e.note || hl.length > 0 || stack.length > 0) && (
+              <>
+                {e.note && <p className="text-[13px] leading-relaxed text-muted-foreground">{e.note}</p>}
+                {hl.length > 0 && <Bullets items={hl.slice(0, 2)} />}
+                {stack.length > 0 && <div className="flex flex-wrap gap-1.5">{stack.slice(0, 6).map((s) => <TechBadge key={s} name={s} />)}</div>}
+              </>
+            )}
+          </Entry>
+        );
+      })}
+    </Rail>
   );
 }
 
-/** Education: credential and subject, school, period; then positions and clubs, courses and highlights. */
+/** Education as a timeline: credential, school, period and result at a glance; roles and courses underneath. */
 export function EducationList({ items }: { items: Education[] }) {
   return (
-    <div>
-      {items.map((e, i) => (
-        <Entry key={i} first={i === 0} tile={e.school} title={<>{e.degree}{e.field && <span className="font-normal text-muted-foreground"> · {e.field}</span>}</>}
-          tag={<>{e.status && <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground">{e.status}{e.semester && ` · ${e.semester}`}</span>}{e.grade && <span className="rounded-full border border-border bg-card px-2 py-0.5 font-mono text-[11px] text-muted-foreground">{e.grade}</span>}</>}
-          sub={e.school} right={<div className="font-mono text-xs">{period(e.start, e.end)}</div>}>
-          {e.activities?.length || e.courses?.length || e.highlights?.length ? (
-            <>
-              {e.activities?.length ? (
-                <div>
-                  <Label>Positions &amp; clubs</Label>
-                  <ul className="space-y-3">
-                    {e.activities.map((a, j) => (
-                      <li key={j} className="text-sm">
-                        <span className="font-medium">{a.role}</span>{a.org && <span className="text-muted-foreground"> · {a.org}</span>}
-                        {a.note && <p className="mt-0.5 leading-relaxed text-muted-foreground">{a.note}</p>}
-                      </li>
+    <Rail>
+      {items.map((e, i) => {
+        const roles = e.activities ?? [];
+        const courses = e.courses ?? [];
+        const hl = e.highlights ?? [];
+        return (
+          <Entry key={i} live={e.status === "Ongoing"} title={<>{e.degree}{e.field && <span className="font-normal text-muted-foreground"> · {e.field}</span>}</>} org={e.school}
+            chips={<>{e.status && <Chip>{e.status}{e.semester && ` · ${e.semester}`}</Chip>}{e.grade && <Chip className="border-emerald-400/25 bg-emerald-400/10 text-emerald-300">{e.grade}</Chip>}</>}
+            when={{ period: period(e.start, e.end) }}
+            more={hl.length ? <Bullets items={hl} /> : undefined}>
+            {(roles.length > 0 || courses.length > 0) && (
+              <>
+                {roles.length > 0 && (
+                  <ul className="space-y-1 text-[13px]">
+                    {roles.map((a, j) => (
+                      <li key={j}><span className="font-medium">{a.role}</span>{a.org && <span className="text-muted-foreground"> · {a.org}</span>}{a.note && <span className="text-muted-foreground"> — {a.note}</span>}</li>
                     ))}
                   </ul>
-                </div>
-              ) : null}
-              {e.courses?.length ? <div><Label>Courses</Label><Pills items={e.courses} /></div> : null}
-              {e.highlights?.length ? <div><Label>Highlights</Label><Bullets items={e.highlights} /></div> : null}
-            </>
-          ) : undefined}
-        </Entry>
-      ))}
-    </div>
+                )}
+                {courses.length > 0 && <div><Sub>Courses</Sub><Tags items={courses} max={8} /></div>}
+              </>
+            )}
+          </Entry>
+        );
+      })}
+    </Rail>
   );
 }
